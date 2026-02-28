@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}メール - 就活エージェント{% endblock %}
+{% block page_title %}メール{% endblock %}
+
+{% block top_actions %}
+<div class="filter-group">
+    <a href="/emails" class="btn btn-sm {% if not filter_job %}btn-primary{% else %}btn-outline{% endif %}">すべて</a>
+    <a href="/emails?filter=job"
+        class="btn btn-sm {% if filter_job %}btn-primary{% else %}btn-outline{% endif %}">就活関連</a>
+</div>
+<button class="btn btn-primary btn-sm" onclick="fetchEmails()">📩 メール取得</button>
+{% endblock %}
+
+{% block content %}
+<div class="emails-container">
+    {% if emails %}
+    <div class="email-list">
+        {% for email in emails %}
+        <div class="email-item {% if email.is_interview_invite %}interview-highlight{% endif %}">
+            <div class="email-header">
+                {% if email.is_interview_invite %}
+                <span class="email-tag tag-interview">📅 面接招待</span>
+                {% elif email.is_job_related %}
+                <span class="email-tag tag-job">就活関連</span>
+                {% endif %}
+                <span class="email-subject">{{ email.subject }}</span>
+            </div>
+            <div class="email-meta">
+                <span class="email-sender">{{ email.sender }}</span>
+                <span class="email-date">{{ email.received_at[:16] if email.received_at else '' }}</span>
+            </div>
+            <div class="email-preview">{{ email.body_preview[:200] if email.body_preview else '' }}</div>
+            {% if email.is_interview_invite %}
+            <div class="email-auto-note">✅ 面接情報を自動検出 — ダッシュボードで確認できます</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state large">
+        <span class="empty-icon">📩</span>
+        <h3>メールがありません</h3>
+        {% if gmail_authed %}
+        <p>Gmail認証済みです。「📩 メール取得」ボタンでメールを取得してください。</p>
+        <button class="btn btn-primary" onclick="fetchEmails()">📩 メール取得</button>
+        {% else %}
+        <p>Gmailを連携してメールを取得してください。</p>
+        <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="authGmailFromEmails()">🍪 Gmailブラウザログイン</button>
+            <a href="/settings" class="btn btn-outline">⚙️ 設定画面へ</a>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function fetchEmails() {
+        showToast('メールを取得中...（就活メールは本文も取得します）', 'info', 8000);
+        try {
+            const res = await fetch('/api/gmail/fetch', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                let msg = `${data.count}件のメールを取得しました`;
+                if (data.events_registered > 0) {
+                    msg += ` 🎯 ${data.events_registered}件の予定を自動登録しました`;
+                }
+                showToast(msg, 'success', 5000);
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showToast(data.error || 'エラーが発生しました', 'error');
+            }
+        } catch (err) {
+            showToast('メール取得に失敗しました', 'error');
+        }
+    }
+
+    async function authGmailFromEmails() {
+        showToast('Gmail認証を開始します...ブラウザで認証画面が開きます', 'info');
+        try {
+            const res = await fetch('/api/gmail/auth', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`Gmail認証成功: ${data.message}`, 'success');
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                showToast(data.error || 'Gmail認証に失敗しました', 'error');
+            }
+        } catch (err) {
+            showToast('Gmail認証に失敗しました', 'error');
+        }
+    }
+</script>
+{% endblock %}

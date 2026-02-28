@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}MyPage管理 - 就活エージェント{% endblock %}
+{% block page_title %}🔐 MyPage管理{% endblock %}
+
+{% block top_actions %}
+<button class="btn btn-primary btn-sm" onclick="showAddMyPageModal()">＋ 手動追加</button>
+<button class="btn btn-outline btn-sm" onclick="showPasswordModal()">🔑 統一パスワード</button>
+{% endblock %}
+
+{% block content %}
+<div class="mypage-container">
+
+    <!-- Stats Row -->
+    <div class="stats-row" style="margin-bottom: 1.5rem;">
+        <div class="stat-card stat-total" id="stat-total">
+            <div class="stat-number" id="count-total">-</div>
+            <div class="stat-label">全件</div>
+        </div>
+        <div class="stat-card" style="border-left: 3px solid #ffa502;">
+            <div class="stat-number" id="count-received">-</div>
+            <div class="stat-label">受信済</div>
+        </div>
+        <div class="stat-card" style="border-left: 3px solid #1e90ff;">
+            <div class="stat-number" id="count-progress">-</div>
+            <div class="stat-label">処理中</div>
+        </div>
+        <div class="stat-card" style="border-left: 3px solid #2ed573;">
+            <div class="stat-number" id="count-ready">-</div>
+            <div class="stat-label">確認待ち</div>
+        </div>
+        <div class="stat-card" style="border-left: 3px solid #ff4757;">
+            <div class="stat-number" id="count-manual">-</div>
+            <div class="stat-label">手動対応</div>
+        </div>
+    </div>
+
+    <!-- MyPage Cards List -->
+    <div class="card">
+        <div class="card-header">
+            <h3 style="margin:0;">📋 MyPage一覧</h3>
+            <select id="status-filter" onchange="loadMypages()" class="select-sm" style="margin-left:auto;">
+                <option value="">すべて</option>
+                <option value="received">受信済み</option>
+                <option value="password_changed">PW変更済</option>
+                <option value="profile_filled">基本情報入力済</option>
+                <option value="draft_saved">下書き保存済</option>
+                <option value="ready_for_review">確認待ち</option>
+                <option value="manual_intervention_needed">手動対応</option>
+                <option value="submitted">提出済</option>
+            </select>
+        </div>
+        <div id="mypage-list" style="padding: 0.5rem;">
+            <div class="empty-state">
+                <span class="empty-icon">🔐</span>
+                <p>MyPage情報がまだありません。</p>
+                <p style="color:var(--text-muted); font-size:0.85rem;">企業からのMyPage通知メールを受信すると自動的に登録されます。</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add MyPage Modal -->
+<div id="add-modal"
+    style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div class="card" style="width:90%; max-width:500px;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">🔐 MyPage手動追加</h3>
+            <button class="btn btn-sm btn-outline" onclick="this.closest('#add-modal').style.display='none'">✕</button>
+        </div>
+        <form id="add-form" onsubmit="submitMyPage(event)" style="padding:1rem; display:grid; gap:0.75rem;">
+            <div>
+                <label>求人を選択 <span style="color:#ff4757">*</span></label>
+                <select name="job_id" id="job-select" class="form-control" required>
+                    <option value="">-- 企業を選択 --</option>
+                    {% for job in jobs %}
+                    <option value="{{ job.id }}">{{ job.company_name }}{% if job.position %} ({{ job.position }}){%
+                        endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>MyPage URL</label>
+                <input type="url" name="login_url" class="form-control" placeholder="https://...">
+            </div>
+            <div>
+                <label>ログインID / メールアドレス</label>
+                <input type="text" name="username" class="form-control" placeholder="あなたのID">
+            </div>
+            <div>
+                <label>パスワード</label>
+                <input type="text" name="password" class="form-control" placeholder="初期パスワード">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline"
+                    onclick="this.closest('#add-modal').style.display='none'">キャンセル</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Unified Password Modal -->
+<div id="pw-modal"
+    style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div class="card" style="width:90%; max-width:400px;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">🔑 統一パスワード設定</h3>
+            <button class="btn btn-sm btn-outline" onclick="this.closest('#pw-modal').style.display='none'">✕</button>
+        </div>
+        <form id="pw-form" onsubmit="saveUnifiedPassword(event)" style="padding:1rem; display:grid; gap:0.75rem;">
+            <p style="color:var(--text-secondary); font-size:0.85rem; margin:0;">
+                すべてのMyPageで使用する共通パスワードを設定します。初回ログイン時に自動で変更されます。
+            </p>
+            <div>
+                <label>統一パスワード</label>
+                <input type="text" id="unified-pw" class="form-control" placeholder="例: MyStr0ngP@ss!">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline"
+                    onclick="this.closest('#pw-modal').style.display='none'">キャンセル</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ES Generator Modal -->
+<div id="es-gen-modal"
+    style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div class="card" style="width:90%; max-width:600px; max-height:80vh; overflow-y:auto;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">📝 ES自動生成 (字数厳守)</h3>
+            <button class="btn btn-sm btn-outline"
+                onclick="this.closest('#es-gen-modal').style.display='none'">✕</button>
+        </div>
+        <div style="padding:1rem; display:grid; gap:0.75rem;">
+            <div>
+                <label>質問テーマ <span style="color:#ff4757">*</span></label>
+                <textarea id="es-question" class="form-control" rows="2"
+                    placeholder="例: 学生時代に最も力を入れたことは何ですか？"></textarea>
+            </div>
+            <div style="display:flex; gap:0.75rem;">
+                <div style="flex:1;">
+                    <label>文字数上限 <span style="color:#ff4757">*</span></label>
+                    <input type="number" id="es-max-chars" class="form-control" value="400" min="50" max="2000">
+                </div>
+                <div style="flex:1;">
+                    <label>対象企業</label>
+                    <input type="text" id="es-company" class="form-control" readonly>
+                </div>
+            </div>
+            <input type="hidden" id="es-gen-job-id">
+            <button class="btn btn-primary" onclick="generateStrictES()" id="btn-gen-es">🤖 生成開始</button>
+            <div id="es-gen-status" style="display:none; color:var(--text-secondary); font-size:0.85rem;"></div>
+            <div id="es-gen-result" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                    <span id="es-char-info" style="font-size:0.85rem; color:var(--text-secondary);"></span>
+                    <button class="btn btn-accent btn-sm" onclick="copyESText()" title="テキストをコピー">📋 一键复制</button>
+                </div>
+                <textarea id="es-gen-text" class="form-control" rows="8"
+                    style="font-size:0.9rem; line-height:1.6;"></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allMypages = [];
+
+    async function loadMypages() {
+        const resp = await fetch('/api/mypage/list');
+        allMypages = await resp.json();
+        const filter = document.getElementById('status-filter').value;
+        const filtered = filter ? allMypages.filter(m => m.status === filter) : allMypages;
+        renderMypages(filtered);
+        updateStats();
+    }
+
+    function updateStats() {
+        document.getElementById('count-total').textContent = allMypages.length;
+        document.getElementById('count-received').textContent = allMypages.filter(m => m.status === 'received').length;
+        document.getElementById('count-progress').textContent = allMypages.filter(m => ['logging_in', 'password_changed', 'profile_filled', 'es_filling'].includes(m.status)).length;
+        document.getElementById('count-ready').textContent = allMypages.filter(m => ['draft_saved', 'ready_for_review'].includes(m.status)).length;
+        document.getElementById('count-manual').textContent = allMypages.filter(m => m.status === 'manual_intervention_needed').length;
+    }
+
+    const STATUS_LABELS = {
+        'received': '📩 受信済み',
+        'logging_in': '🔄 ログイン中',
+        'password_changed': '🔑 PW変更済',
+        'profile_filled': '📝 基本情報済',
+        'es_filling': '✍️ ES入力中',
+        'draft_saved': '💾 下書き保存',
+        'ready_for_review': '✅ 確認待ち',
+        'manual_intervention_needed': '⚠️ 手動対応',
+        'submitted': '🎉 提出済み',
+        'failed': '❌ 失敗'
+    };
+
+    const STATUS_COLORS = {
+        'received': '#ffa502', 'logging_in': '#1e90ff', 'password_changed': '#1e90ff',
+        'profile_filled': '#1e90ff', 'es_filling': '#1e90ff', 'draft_saved': '#2ed573',
+        'ready_for_review': '#2ed573', 'manual_intervention_needed': '#ff4757',
+        'submitted': '#7bed9f', 'failed': '#ff4757'
+    };
+
+    function renderMypages(mypages) {
+        const container = document.getElementById('mypage-list');
+        if (!mypages.length) {
+            container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔐</span>
+                <p>該当するMyPageがありません</p></div>`;
+            return;
+        }
+        container.innerHTML = mypages.map(m => {
+            const statusColor = STATUS_COLORS[m.status] || '#999';
+            const statusLabel = STATUS_LABELS[m.status] || m.status;
+            return `
+            <div class="list-item" style="border-left:3px solid ${statusColor}; margin-bottom:8px; padding:0.75rem 1rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width:200px;">
+                    <div style="font-weight:700; font-size:0.95rem;">${m.company_name || '不明'}</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">ID: ${m.username || '-'}</div>
+                </div>
+                <span style="background:${statusColor}22; color:${statusColor}; padding:2px 10px; border-radius:12px; font-size:0.8rem; font-weight:600; white-space:nowrap;">
+                    ${statusLabel}
+                </span>
+                <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                    ${m.login_url ? `<a href="${m.login_url}" target="_blank" class="btn btn-sm btn-outline" title="MyPageを開く" onclick="event.stopPropagation()">🔗</a>` : ''}
+                    <button class="btn btn-sm btn-outline" onclick="copyText('${m.username || ''}')" title="IDをコピー">📋ID</button>
+                    <button class="btn btn-sm btn-outline" onclick="copyFullPassword(${m.job_id})" title="パスワードをコピー">🔑PW</button>
+                    <button class="btn btn-sm btn-accent" onclick="showESGenerator(${m.job_id}, '${(m.company_name || '').replace(/'/g, "\\'")}')">📝ES生成</button>
+                    <button class="btn btn-sm" style="color:#ff4757;" onclick="deleteMypage(${m.job_id}, this)" title="削除">🗑️</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    async function copyFullPassword(jobId) {
+        const resp = await fetch(`/api/mypage/${jobId}`);
+        const data = await resp.json();
+        if (data.current_password) {
+            await navigator.clipboard.writeText(data.current_password);
+            showToast('パスワードをコピーしました');
+        } else {
+            showToast('パスワードが未設定です', 'error');
+        }
+    }
+
+    function copyText(text) {
+        navigator.clipboard.writeText(text);
+        showToast('コピーしました');
+    }
+
+    function showToast(msg, type = 'success') {
+        const toast = document.createElement('div');
+        toast.style.cssText = `position:fixed;bottom:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;z-index:9999;
+            background:${type === 'error' ? '#ff4757' : '#2ed573'};font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.3);`;
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+
+    function showAddMyPageModal() { document.getElementById('add-modal').style.display = 'flex'; }
+    function showPasswordModal() {
+        fetch('/api/mypage/password').then(r => r.json()).then(d => {
+            document.getElementById('unified-pw').value = d.password || '';
+        });
+        document.getElementById('pw-modal').style.display = 'flex';
+    }
+
+    async function submitMyPage(e) {
+        e.preventDefault();
+        const form = document.getElementById('add-form');
+        const data = Object.fromEntries(new FormData(form));
+        data.job_id = parseInt(data.job_id);
+        await fetch('/api/mypage/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        document.getElementById('add-modal').style.display = 'none';
+        form.reset();
+        loadMypages();
+        showToast('MyPage保存しました');
+    }
+
+    async function saveUnifiedPassword(e) {
+        e.preventDefault();
+        const pw = document.getElementById('unified-pw').value;
+        await fetch('/api/mypage/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+        document.getElementById('pw-modal').style.display = 'none';
+        showToast('統一パスワード保存しました');
+    }
+
+    async function deleteMypage(jobId, btn) {
+        if (btn && !btn.dataset.confirmed) {
+            btn.dataset.confirmed = 'true';
+            btn.textContent = '確認？';
+            btn.style.color = '#fff';
+            btn.style.background = '#ff4757';
+            setTimeout(() => { btn.dataset.confirmed = ''; btn.textContent = '🗑️'; btn.style.color = '#ff4757'; btn.style.background = ''; }, 3000);
+            return;
+        }
+        await fetch(`/api/mypage/${jobId}`, { method: 'DELETE' });
+        loadMypages();
+    }
+
+    // ── ES Generator ──
+    function showESGenerator(jobId, companyName) {
+        document.getElementById('es-gen-job-id').value = jobId;
+        document.getElementById('es-company').value = companyName;
+        document.getElementById('es-gen-result').style.display = 'none';
+        document.getElementById('es-gen-status').style.display = 'none';
+        document.getElementById('es-question').value = '';
+        document.getElementById('es-gen-modal').style.display = 'flex';
+    }
+
+    async function generateStrictES() {
+        const question = document.getElementById('es-question').value.trim();
+        const maxChars = parseInt(document.getElementById('es-max-chars').value);
+        const jobId = parseInt(document.getElementById('es-gen-job-id').value);
+        if (!question) return alert('質問を入力してください');
+
+        const btn = document.getElementById('btn-gen-es');
+        const status = document.getElementById('es-gen-status');
+        btn.disabled = true; btn.textContent = '⏳ 生成中...';
+        status.style.display = 'block'; status.textContent = 'AIが字数制限を守りながら生成中...（最大3回リトライ）';
+        document.getElementById('es-gen-result').style.display = 'none';
+
+        try {
+            const resp = await fetch('/api/mypage/generate-es', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question, max_chars: maxChars, job_id: jobId })
+            });
+            const data = await resp.json();
+            if (data.text) {
+                document.getElementById('es-gen-text').value = data.text;
+                const minChars = Math.floor(maxChars * 0.9);
+                const charColor = (data.char_count >= minChars && data.char_count <= maxChars) ? '#2ed573' : '#ff4757';
+                document.getElementById('es-char-info').innerHTML =
+                    `文字数: <span style="color:${charColor};font-weight:700;">${data.char_count}</span> / ${maxChars} (下限${minChars}) &nbsp; 試行: ${data.attempts}回 &nbsp; 状態: ${data.status}`;
+                document.getElementById('es-gen-result').style.display = 'block';
+                status.textContent = '✅ 生成完了！';
+            } else {
+                status.textContent = '❌ 生成失敗: ' + (data.error || 'Unknown error');
+            }
+        } catch (e) {
+            status.textContent = '❌ エラー: ' + e.message;
+        }
+        btn.disabled = false; btn.textContent = '🤖 生成開始';
+    }
+
+    function copyESText() {
+        const text = document.getElementById('es-gen-text').value;
+        navigator.clipboard.writeText(text);
+        showToast('ESテキストをコピーしました（📋 ペーストしてください）');
+    }
+
+    // Init
+    loadMypages();
+</script>
+{% endblock %}

@@ -1,0 +1,36 @@
+あなたは日本の新卒就活支援AIです。
+以下の企業ページテキストから構造化データを抽出してJSON形式で出力してください。
+
+⚠️ 必ず以下の14キーを全て含むJSONを出力すること。省略は禁止。該当なしは "なし" と記入。
+
+{{
+  "company_business": "事業内容の要約（何を提供している会社か。200字以内）",
+  "company_culture": "社風・雰囲気（例: 若手活躍、定着率高い、チーム重視。100字以内）",
+  "selection_process": "選考フロー（例: 説明会→適性検査→一次面接→最終面接）",
+  "next_action": "就活生が今すべき次のステップ（例: 説明会に申し込む）",
+  "next_action_url": "次のアクションURL（例: https://job.career-tasu.jp/corp/XXXXX/seminar/）",
+  "position": "募集職種",
+  "salary": "給与（例: 月給25万円）",
+  "location": "勤務地",
+  "benefits": "福利厚生の要点",
+  "work_style": "働き方（例: テレワーク、完全週休2日）",
+  "requirements": "応募条件・求める人材",
+  "job_description": "仕事内容の要約（100字以内）",
+  "industry": "業界（例: IT・通信）",
+  "deadline_date": "YYYY-MM-DD形式の締切日"
+}}
+
+=== 抽出ヒント ===
+- company_business: 「私たちの事業」「事業内容」セクション
+- company_culture: 「私たちの特徴」「社風」「定着率」等
+- selection_process: 「STEP.1」「STEP.2」「選考プロセス」
+- next_action_url: /corp/数字/seminar/ や /employment/ 等のURL
+
+--- 企業名 ---
+{company_name}
+
+--- 既知データ ---
+{existing_fields}
+
+--- テキスト ---
+{page_text}

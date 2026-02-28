@@ -1,0 +1,42 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.venv/
+venv/
+env/
+
+# Data (mounted as volume instead)
+data/
+*.db
+
+# Environment secrets
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tests & debug scripts
+test_*.py
+debug_*.py
+fix_*.py
+update_model.py
+check_ai.py
+*.wsb
+
+# Docs (not needed at runtime)
+*.md
+LICENSE

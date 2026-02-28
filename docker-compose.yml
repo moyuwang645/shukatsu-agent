@@ -1,0 +1,12 @@
+services:
+  shukatsu-agent:
+    build: .
+    container_name: shukatsu-agent
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

@@ -1,0 +1,43 @@
+# Environment & secrets
+.env
+credentials.json
+data/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Dev scripts & tests (not needed for production)
+scripts/
+tests/
+
+# Debug artifacts
+debug_*.html
+debug_*.png
+
+# Local tool config
+.antigravityrules
+.antigravityignore

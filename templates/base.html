@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}就活エージェント{% endblock %}</title>
+    <meta name="description" content="新卒就職活動管理ダッシュボード">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=12">
+</head>
+
+<body>
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">🎯</span>
+                <span class="logo-text">就活Agent</span>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li>
+                <a href="/" class="nav-link {% if page == 'dashboard' %}active{% endif %}" id="nav-dashboard">
+                    <span class="nav-icon">📊</span>
+                    <span>ダッシュボード</span>
+                </a>
+            </li>
+            <li>
+                <a href="/jobs" class="nav-link {% if page == 'jobs' %}active{% endif %}" id="nav-jobs">
+                    <span class="nav-icon">💼</span>
+                    <span>求人管理</span>
+                </a>
+            </li>
+            <li>
+                <a href="/calendar" class="nav-link {% if page == 'calendar' %}active{% endif %}" id="nav-calendar">
+                    <span class="nav-icon">📅</span>
+                    <span>カレンダー</span>
+                </a>
+            </li>
+            <li>
+                <a href="/emails" class="nav-link {% if page == 'emails' %}active{% endif %}" id="nav-emails">
+                    <span class="nav-icon">📩</span>
+                    <span>メール</span>
+                </a>
+            </li>
+            <li>
+                <a href="/chat" class="nav-link {% if page == 'chat' %}active{% endif %}" id="nav-chat">
+                    <span class="nav-icon">🤖</span>
+                    <span>AIチャット</span>
+                </a>
+            </li>
+            <li>
+                <a href="/es" class="nav-link {% if page == 'es' %}active{% endif %}" id="nav-es">
+                    <span class="nav-icon">📄</span>
+                    <span>ES管理</span>
+                </a>
+            </li>
+            <li>
+                <a href="/mypage" class="nav-link {% if page == 'mypage' %}active{% endif %}" id="nav-mypage">
+                    <span class="nav-icon">🔐</span>
+                    <span>MyPage</span>
+                </a>
+            </li>
+            <li>
+                <a href="/settings" class="nav-link {% if page == 'settings' %}active{% endif %}" id="nav-settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>設定</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="notification-badge" id="notif-badge" onclick="toggleNotifPanel()">
+                <span class="nav-icon">🔔</span>
+                <span>通知</span>
+                {% if notifications|length > 0 %}
+                <span class="badge">{{ notifications|length }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="top-bar">
+            <button class="menu-toggle" onclick="toggleSidebar()" id="menu-toggle">☰</button>
+            <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
+            <div class="top-bar-actions">
+                {% block top_actions %}{% endblock %}
+            </div>
+        </header>
+
+        <div class="content-area">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Notification Panel -->
+    <div class="notif-panel" id="notif-panel">
+        <div class="notif-header">
+            <h3>通知</h3>
+            <button onclick="markAllRead()" class="btn-text">すべて既読</button>
+        </div>
+        <div class="notif-list" id="notif-list">
+            {% if notifications %}
+            {% for n in notifications %}
+            <div class="notif-item {% if not n.is_read %}unread{% endif %}" data-id="{{ n.id }}">
+                <div class="notif-title">{{ n.title }}</div>
+                <div class="notif-message">{{ n.message }}</div>
+                <div class="notif-time">{{ n.created_at }}</div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="notif-empty">通知はありません</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal Container -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
+        <div class="modal" id="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="modal-title"></h2>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=11"></script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

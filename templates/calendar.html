@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+{% block title %}カレンダー - 就活エージェント{% endblock %}
+{% block page_title %}カレンダー{% endblock %}
+
+{% block content %}
+<div class="calendar-container">
+    <!-- Filter bar -->
+    <div class="calendar-filters" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+        <button class="btn btn-sm filter-btn active" data-filter="all" onclick="setFilter('all')">📋 すべて</button>
+        <button class="btn btn-sm filter-btn" data-filter="deadline" onclick="setFilter('deadline')"
+            style="--filter-color:#ef4444;">🔴 イベント</button>
+        <button class="btn btn-sm filter-btn" data-filter="honsen" onclick="setFilter('honsen')"
+            style="--filter-color:#f97316;">🟠 本選</button>
+        <button class="btn btn-sm filter-btn" data-filter="interview" onclick="setFilter('interview')"
+            style="--filter-color:#3b82f6;">🔵 面接</button>
+        <button class="btn btn-sm filter-btn" data-filter="es" onclick="setFilter('es')"
+            style="--filter-color:#a855f7;">🟣 ES・書類</button>
+        <button class="btn btn-sm filter-btn" data-filter="event" onclick="setFilter('event')"
+            style="--filter-color:#22c55e;">🟢 説明会</button>
+        <button class="btn btn-sm filter-btn" data-filter="test" onclick="setFilter('test')"
+            style="--filter-color:#eab308;">🟡 テスト</button>
+    </div>
+
+    <div class="calendar-header">
+        <button class="btn btn-ghost" onclick="changeMonth(-1)">◀</button>
+        <h2 id="calendar-month-title"></h2>
+        <button class="btn btn-ghost" onclick="changeMonth(1)">▶</button>
+        <button class="btn btn-sm btn-outline" onclick="goToToday()">今日</button>
+    </div>
+
+    <div class="calendar-grid">
+        <div class="calendar-weekdays">
+            <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+        </div>
+        <div class="calendar-days" id="calendar-days"></div>
+    </div>
+
+    <!-- Day detail panel -->
+    <div class="day-detail" id="day-detail" style="display: none;">
+        <h3 id="day-detail-title"></h3>
+        <div id="day-detail-content"></div>
+    </div>
+
+    <!-- Stats summary -->
+    <div id="filter-stats" style="margin-top:12px; font-size:0.95rem; color:var(--text-secondary, #aaa);"></div>
+</div>
+
+<style>
+    .calendar-filters .filter-btn {
+        border: 1px solid var(--border, #333);
+        background: transparent;
+        opacity: 0.75;
+        transition: all 0.2s;
+        font-size: 0.85rem;
+        padding: 6px 14px;
+    }
+
+    .calendar-filters .filter-btn.active {
+        opacity: 1;
+        border-color: var(--filter-color, var(--primary, #7c3aed));
+        background: color-mix(in srgb, var(--filter-color, var(--primary, #7c3aed)) 15%, transparent);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--filter-color, var(--primary, #7c3aed)) 30%, transparent);
+    }
+
+    .calendar-filters .filter-btn:hover {
+        opacity: 1;
+    }
+
+    .day-event.es-event {
+        background: rgba(168, 85, 247, 0.35);
+        color: #fff;
+        border-left: 2px solid #a855f7;
+    }
+
+    .day-event.event-event {
+        background: rgba(34, 197, 94, 0.3);
+        color: #fff;
+        border-left: 2px solid #22c55e;
+    }
+
+    .day-event.test-event {
+        background: rgba(234, 179, 8, 0.35);
+        color: #fff;
+        border-left: 2px solid #eab308;
+    }
+
+    .day-event.honsen-event {
+        background: rgba(249, 115, 22, 0.35);
+        color: #fff;
+        border-left: 2px solid #f97316;
+    }
+
+    .detail-item {
+        cursor: pointer;
+        padding: 8px 10px;
+        border-radius: 6px;
+        margin: 4px 0;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .detail-item .company-name {
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .detail-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .detail-item .category-tag {
+        font-size: 0.85rem;
+        padding: 3px 8px;
+        border-radius: 4px;
+        white-space: nowrap;
+        font-weight: 600;
+    }
+
+    .tag-interview {
+        background: rgba(59, 130, 246, 0.35);
+        color: #fff;
+    }
+
+    .tag-es {
+        background: rgba(168, 85, 247, 0.35);
+        color: #fff;
+    }
+
+    .tag-event {
+        background: rgba(34, 197, 94, 0.3);
+        color: #fff;
+    }
+
+    .tag-test {
+        background: rgba(234, 179, 8, 0.35);
+        color: #fff;
+    }
+
+    .tag-deadline {
+        background: rgba(239, 68, 68, 0.35);
+        color: #fff;
+    }
+
+    .tag-honsen {
+        background: rgba(249, 115, 22, 0.35);
+        color: #fff;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const calendarJobs = {{ jobs | tojson }};
+    const calendarInterviews = {{ interviews | tojson }};
+
+    let currentYear, currentMonth;
+    let activeFilter = 'all';
+    let selectedDate = null;  // Track currently selected date for filter re-render
+
+    // --- Category classification ---
+    function classifyInterview(iv) {
+        const t = (iv.interview_type || '').toLowerCase();
+        const notes = (iv.notes || '').toLowerCase();
+        if (/説明会|セミナー|イベント|expo|オープン/.test(t) || /説明会|セミナー/.test(notes)) return 'event';
+        if (/webテスト|適性検査|spi|筆記|テスト/.test(t) || /spi|適性検査/.test(notes)) return 'test';
+        if (/es|エントリーシート|書類/.test(t) || /es締切|書類提出|エントリーシート/.test(notes)) return 'es';
+        if (/gd|グループディスカッション/.test(t)) return 'test';
+        if (/その他/.test(t) && /説明会|セミナー/.test(notes)) return 'event';
+        if (/その他/.test(t) && /es|書類/.test(notes)) return 'es';
+        return 'interview';
+    }
+
+    function classifyDeadline(job) {
+        // IN_PROGRESS statuses → 本選 (active selection)
+        const honsenStatuses = [
+            '本選', 'applied', 'es_passed', 'spi', 'gd',
+            'interview_1', 'interview_2', 'interview_final',
+            'interviewing'
+        ];
+        if (honsenStatuses.includes(job.status)) return 'honsen';
+        return 'deadline';
+    }
+
+    // Status label mapping (JP)
+    const STATUS_LABELS = {
+        'interested': '検討中', 'seminar': '説明会', 'seminar_fast': '早期選考',
+        'casual': 'カジュアル', 'applied': '応募済', 'es_passed': 'ES通過',
+        'spi': 'SPI', 'gd': 'GD', 'interview_1': '一次面接',
+        'interview_2': '二次面接', 'interview_final': '最終面接',
+        '本選': '本選', 'offered': '内定', 'accepted': '承諾',
+        'rejected': '不合格', 'withdrawn': '辞退'
+    };
+
+    function getStatusLabel(status) {
+        return STATUS_LABELS[status] || status;
+    }
+
+    function getCategoryLabel(cat) {
+        const labels = {
+            interview: '面接', es: 'ES', event: '説明会', test: 'テスト',
+            deadline: '締切', honsen: '本選'
+        };
+        return labels[cat] || cat;
+    }
+
+    function getCategoryEmoji(cat) {
+        const emojis = {
+            interview: '🔵', es: '🟣', event: '🟢', test: '🟡',
+            deadline: '🔴', honsen: '🟠'
+        };
+        return emojis[cat] || '⚪';
+    }
+
+    // --- Filtering ---
+    function getFilteredData(dateStr) {
+        let deadlines = calendarJobs.filter(j => j.deadline === dateStr);
+        let interviews = calendarInterviews.filter(iv => iv.scheduled_at && iv.scheduled_at.startsWith(dateStr));
+
+        if (activeFilter === 'all') return { deadlines, interviews };
+
+        if (activeFilter === 'deadline') {
+            return { deadlines, interviews: [] };
+        }
+        if (activeFilter === 'honsen') {
+            return {
+                deadlines: deadlines.filter(j => classifyDeadline(j) === 'honsen'),
+                interviews: []
+            };
+        }
+        // Interview-type filters
+        return {
+            deadlines: [],
+            interviews: interviews.filter(iv => classifyInterview(iv) === activeFilter)
+        };
+    }
+
+    function setFilter(filter) {
+        activeFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.filter === filter);
+        });
+        renderCalendar();
+        // Re-render day detail if visible (use stored dateStr, not title text)
+        if (selectedDate) {
+            const panel = document.getElementById('day-detail');
+            if (panel.style.display !== 'none') {
+                showDayDetail(selectedDate);
+            }
+        }
+        updateStats();
+    }
+
+    function updateStats() {
+        const stats = document.getElementById('filter-stats');
+        const totalDeadlines = calendarJobs.filter(j => j.deadline).length;
+        const totalInterviews = calendarInterviews.length;
+        const interviewCats = {};
+        calendarInterviews.forEach(iv => {
+            const cat = classifyInterview(iv);
+            interviewCats[cat] = (interviewCats[cat] || 0) + 1;
+        });
+        const deadlineCats = {};
+        calendarJobs.filter(j => j.deadline).forEach(j => {
+            const cat = classifyDeadline(j);
+            deadlineCats[cat] = (deadlineCats[cat] || 0) + 1;
+        });
+
+        let parts = [`合計: ${totalDeadlines + totalInterviews}件`];
+        if (deadlineCats.honsen) parts.push(`🟠本選 ${deadlineCats.honsen}`);
+        if (deadlineCats.deadline) parts.push(`🔴イベント ${deadlineCats.deadline}`);
+        if (interviewCats.interview) parts.push(`🔵面接 ${interviewCats.interview}`);
+        if (interviewCats.es) parts.push(`🟣ES ${interviewCats.es}`);
+        if (interviewCats.event) parts.push(`🟢説明会 ${interviewCats.event}`);
+        if (interviewCats.test) parts.push(`🟡テスト ${interviewCats.test}`);
+        stats.textContent = parts.join(' | ');
+    }
+
+    // --- Calendar rendering ---
+    function initCalendar() {
+        const now = new Date();
+        currentYear = now.getFullYear();
+        currentMonth = now.getMonth();
+        renderCalendar();
+        updateStats();
+    }
+
+    function changeMonth(delta) {
+        currentMonth += delta;
+        if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+        if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+        renderCalendar();
+    }
+
+    function goToToday() {
+        const now = new Date();
+        currentYear = now.getFullYear();
+        currentMonth = now.getMonth();
+        renderCalendar();
+    }
+
+    function renderCalendar() {
+        const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+        document.getElementById('calendar-month-title').textContent = `${currentYear}年 ${monthNames[currentMonth]}`;
+
+        const daysContainer = document.getElementById('calendar-days');
+        daysContainer.innerHTML = '';
+
+        const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+
+        for (let i = 0; i < firstDay; i++) {
+            daysContainer.innerHTML += '<div class="calendar-day empty"></div>';
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isToday = dateStr === todayStr;
+            const { deadlines, interviews } = getFilteredData(dateStr);
+
+            // Build category-based dots and labels
+            let eventDots = '';
+            let eventLabels = '';
+
+            // Deadline categories
+            const honsenDL = deadlines.filter(j => classifyDeadline(j) === 'honsen');
+            const normalDL = deadlines.filter(j => classifyDeadline(j) === 'deadline');
+
+            if (honsenDL.length > 0) {
+                eventDots += `<span class="dot" style="background:#f97316;" title="${honsenDL.length}件本選"></span>`;
+                eventLabels += `<div class="day-event honsen-event">${honsenDL.length}件本選</div>`;
+            }
+            if (normalDL.length > 0) {
+                eventDots += `<span class="dot" style="background:#ef4444;" title="${normalDL.length}件締切"></span>`;
+                eventLabels += `<div class="day-event deadline-event">${normalDL.length}件イベント</div>`;
+            }
+
+            // Interview categories
+            const cats = {};
+            interviews.forEach(iv => {
+                const c = classifyInterview(iv);
+                cats[c] = (cats[c] || 0) + 1;
+            });
+
+            const catStyles = {
+                interview: { color: '#3b82f6', cls: 'interview-event', label: '面接' },
+                es: { color: '#a855f7', cls: 'es-event', label: 'ES' },
+                event: { color: '#22c55e', cls: 'event-event', label: '説明会' },
+                test: { color: '#eab308', cls: 'test-event', label: 'テスト' },
+            };
+
+            for (const [cat, count] of Object.entries(cats)) {
+                const s = catStyles[cat] || catStyles.interview;
+                eventDots += `<span class="dot" style="background:${s.color};" title="${count}件${s.label}"></span>`;
+                eventLabels += `<div class="day-event ${s.cls}">${count}件${s.label}</div>`;
+            }
+
+            const hasEvents = deadlines.length > 0 || interviews.length > 0;
+
+            daysContainer.innerHTML += `
+            <div class="calendar-day ${isToday ? 'today' : ''} ${hasEvents ? 'has-events' : ''}"
+                 onclick="showDayDetail('${dateStr}')">
+                <span class="day-number">${day}</span>
+                <div class="day-dots">${eventDots}</div>
+                ${eventLabels}
+            </div>
+        `;
+        }
+    }
+
+    function showDayDetail(dateStr) {
+        selectedDate = dateStr;  // Store for filter re-render
+        const panel = document.getElementById('day-detail');
+        const title = document.getElementById('day-detail-title');
+        const content = document.getElementById('day-detail-content');
+
+        const { deadlines, interviews } = getFilteredData(dateStr);
+
+        // Format date nicely
+        const d = new Date(dateStr);
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        title.textContent = `${dateStr} (${weekdays[d.getDay()]})`;
+
+        let html = '';
+
+        // Group deadlines by category
+        const honsenDL = deadlines.filter(j => classifyDeadline(j) === 'honsen');
+        const normalDL = deadlines.filter(j => classifyDeadline(j) === 'deadline');
+
+        if (honsenDL.length > 0) {
+            html += '<h4>🟠 本選締切</h4>';
+            honsenDL.forEach(j => {
+                html += `<div class="detail-item" onclick="viewJob(${j.id})">
+                    <span class="category-tag tag-honsen">${getStatusLabel(j.status)}</span>
+                    <span class="company-name">${j.company_name}</span>
+                </div>`;
+            });
+        }
+
+        if (normalDL.length > 0) {
+            html += '<h4>🔴 締切</h4>';
+            normalDL.forEach(j => {
+                html += `<div class="detail-item" onclick="viewJob(${j.id})">
+                    <span class="category-tag tag-deadline">${getStatusLabel(j.status)}</span>
+                    <span class="company-name">${j.company_name}</span>
+                </div>`;
+            });
+        }
+
+        // Group interviews by category
+        const interviewsByCategory = {};
+        interviews.forEach(iv => {
+            const cat = classifyInterview(iv);
+            if (!interviewsByCategory[cat]) interviewsByCategory[cat] = [];
+            interviewsByCategory[cat].push(iv);
+        });
+
+        const categoryOrder = ['interview', 'es', 'event', 'test'];
+        const categoryHeaders = {
+            interview: '🔵 面接',
+            es: '🟣 ES・書類',
+            event: '🟢 説明会・イベント',
+            test: '🟡 テスト・検査',
+        };
+
+        categoryOrder.forEach(cat => {
+            const items = interviewsByCategory[cat];
+            if (!items || items.length === 0) return;
+
+            html += `<h4>${categoryHeaders[cat]}</h4>`;
+            items.forEach(iv => {
+                const time = iv.scheduled_at ? iv.scheduled_at.substring(11, 16) : '';
+                const timeStr = time ? `${time}〜` : '';
+                const loc = iv.location || iv.online_url || '';
+                const locStr = loc ? ` | ${loc.substring(0, 30)}` : '';
+                html += `<div class="detail-item">
+                    <span class="category-tag tag-${cat}">${iv.interview_type || getCategoryLabel(cat)}</span>
+                    <span class="company-name">${iv.company_name || ''}</span>
+                    <span style="font-size:0.8rem; color:var(--text-secondary,#888);">${timeStr}${locStr}</span>
+                </div>`;
+            });
+        });
+
+        if (!html) {
+            html = '<p class="empty-state">この日の予定はありません</p>';
+        }
+
+        content.innerHTML = html;
+        panel.style.display = 'block';
+    }
+
+    initCalendar();
+</script>
+{% endblock %}

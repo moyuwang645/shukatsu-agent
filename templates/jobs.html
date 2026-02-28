@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+{% block title %}求人管理 - 就活エージェント{% endblock %}
+{% block page_title %}求人管理{% endblock %}
+
+{% block top_actions %}
+<div class="filter-group">
+    <select id="status-filter" onchange="filterJobs()" class="select-sm">
+        <option value="">すべてのステータス</option>
+        <option value="interested" {% if current_status=='interested' %}selected{% endif %}>検討中</option>
+        <option value="本選" {% if current_status=='本選' %}selected{% endif %}>📌 本選</option>
+        <option value="applied" {% if current_status=='applied' %}selected{% endif %}>応募済</option>
+        <option value="interviewing" {% if current_status=='interviewing' %}selected{% endif %}>面接中</option>
+        <option value="offered" {% if current_status=='offered' %}selected{% endif %}>内定</option>
+        <option value="rejected" {% if current_status=='rejected' %}selected{% endif %}>不合格</option>
+        <option value="withdrawn" {% if current_status=='withdrawn' %}selected{% endif %}>辞退</option>
+    </select>
+    <select id="industry-filter" onchange="filterJobs()" class="select-sm" style="margin-left:6px;">
+        <option value="">すべての業界</option>
+        <option value="IT・通信" {% if current_industry=='IT・通信' %}selected{% endif %}>💻 IT・通信</option>
+        <option value="コンサル" {% if current_industry=='コンサル' %}selected{% endif %}>📊 コンサル</option>
+        <option value="金融" {% if current_industry=='金融' %}selected{% endif %}>🏦 金融</option>
+        <option value="メーカー" {% if current_industry=='メーカー' %}selected{% endif %}>🏭 メーカー</option>
+        <option value="商社" {% if current_industry=='商社' %}selected{% endif %}>🌐 商社</option>
+        <option value="広告・マスコミ" {% if current_industry=='広告・マスコミ' %}selected{% endif %}>📺 広告</option>
+        <option value="人材・教育" {% if current_industry=='人材・教育' %}selected{% endif %}>👥 人材・教育</option>
+        <option value="インフラ・交通" {% if current_industry=='インフラ・交通' %}selected{% endif %}>🚆 インフラ</option>
+        <option value="不動産・建設" {% if current_industry=='不動産・建設' %}selected{% endif %}>🏗️ 不動産</option>
+        <option value="サービス・小売" {% if current_industry=='サービス・小売' %}selected{% endif %}>🛒 サービス</option>
+    </select>
+    <button class="btn btn-sm {% if deadline_filter == '3' %}btn-primary{% else %}btn-outline{% endif %}"
+        onclick="filterByDeadline(3)" title="締切3日以内のみ表示" style="margin-left:6px;">
+        🔥 締切3日以内
+    </button>
+</div>
+<button class="btn btn-primary btn-sm" onclick="showAddJobModal()">
+    ＋ 求人追加
+</button>
+<button id="delete-all-btn" class="btn btn-sm" style="color:#ff4757;border-color:#ff4757;margin-left:6px;"
+    onclick="deleteAllJobs(this)">
+    🗑️ 全削除
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="jobs-container">
+    <div class="jobs-summary">
+        <span id="jobs-count">{{ jobs|length }}件表示中</span>
+        <span class="separator">|</span>
+        <span id="jobs-total">全{{ stats.total }}件</span>
+        <span id="sse-status" style="margin-left:8px;font-size:0.7rem;color:var(--text-muted);" title="リアルタイム接続"></span>
+    </div>
+
+    <div class="jobs-list" id="jobs-list">
+        {% if jobs %}
+        {% for job in jobs %}
+        <div class="job-card" data-id="{{ job.id }}" onclick="viewJob({{ job.id }})">
+            <div class="job-card-header">
+                <div class="job-company">
+                    <h3 class="company-name">{{ job.company_name }}</h3>
+                    {% if job.source != 'manual' %}
+                    <span class="source-tag source-{{ job.source }}">{{ job.source }}</span>
+                    {% endif %}
+                </div>
+                {% if job.industry %}
+                <span class="source-tag"
+                    style="background:var(--accent-glow);color:#fff;font-size:0.7rem;padding:2px 6px;border-radius:4px;margin-left:4px;">{{
+                    job.industry }}</span>
+                {% endif %}
+                {% if job.job_type %}
+                <span class="source-tag"
+                    style="background:#8b5cf6;color:#fff;font-size:0.7rem;padding:2px 6px;border-radius:4px;margin-left:4px;">{{
+                    job.job_type }}</span>
+                {% endif %}
+                <span class="status-badge status-{{ job.status }}"
+                    onclick="event.stopPropagation(); cycleStatus({{ job.id }}, '{{ job.status }}')">
+                    {{ job.status }}
+                </span>
+            </div>
+            <div class="job-card-body">
+                {% if job.position %}
+                <span class="job-position">💼 {{ job.position[:60] }}</span>
+                {% endif %}
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
+                    {% if job.location %}
+                    <span class="job-location" style="font-size:0.78rem;">📍 {{ job.location[:30] }}</span>
+                    {% endif %}
+                    {% if job.salary %}
+                    <span style="font-size:0.78rem; color:#2ed573; font-weight:500;">💰 {{ job.salary }}</span>
+                    {% endif %}
+                </div>
+                {% if job.ai_summary %}
+                <div class="ai-analysis-preview"
+                    style="margin-top:8px; padding:8px 10px; background:rgba(99,102,241,0.08); border-radius:6px; border-left:3px solid #6366f1; font-size:0.78rem; color:var(--text-secondary); line-height:1.5;">
+                    {% for line in job.ai_summary.split('\n')[:3] %}
+                    <div style="margin-bottom:2px;">{{ line }}</div>
+                    {% endfor %}
+                </div>
+                {% elif job.job_description %}
+                <div
+                    style="font-size:0.8rem; color:var(--text-muted); margin-top:6px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.4;">
+                    {{ job.job_description }}
+                </div>
+                {% endif %}
+                {% if job.deadline %}
+                <span class="job-deadline {% if job.deadline == today %}deadline-today{% endif %}"
+                    style="margin-top: 6px;">
+                    📅 {{ job.deadline }}
+                </span>
+                {% endif %}
+            </div>
+            <div class="job-card-footer">
+                {% if job.job_url %}
+                <a href="{{ job.job_url }}" target="_blank" class="btn-text" onclick="event.stopPropagation()">🔗
+                    サイトを開く</a>
+                <a href="{{ job.job_url }}" target="_blank" class="btn-text"
+                    style="color:#2ed573; font-weight:600; margin-left:6px;"
+                    onclick="event.stopPropagation(); openEntryPage(event, '{{ job.source }}', '{{ job.job_url }}', '{{ job.source_id }}')"
+                    title="エントリーページを開く">📝 ES</a>
+                {% endif %}
+                <span class="job-updated">更新: {{ job.updated_at[:10] }}</span>
+                <button class="btn btn-sm" style="color:#ff4757;border-color:#ff4757;margin-left:auto;"
+                    onclick="event.stopPropagation(); deleteJob({{ job.id }}, this)" title="削除">🗑️
+                    削除</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state large">
+            <span class="empty-icon">📋</span>
+            <h3>求人がありません</h3>
+            <p>「＋ 求人追加」ボタンから手動で追加するか、マイナビ同期を実行してください。</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function showAddJobModal() {
+        openModal('求人追加', `
+        <form id="add-job-form" onsubmit="submitJob(event)">
+            <div class="form-group">
+                <label for="company_name">会社名 <span class="required">*</span></label>
+                <input type="text" id="company_name" name="company_name" required placeholder="例: 株式会社〇〇">
+            </div>
+            <div class="form-group">
+                <label for="position">職種</label>
+                <input type="text" id="position" name="position" placeholder="例: 総合職、エンジニア">
+            </div>
+            <div class="form-group">
+                <label for="job_url">求人URL</label>
+                <input type="url" id="job_url" name="job_url" placeholder="https://...">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="deadline">締切日</label>
+                    <input type="date" id="deadline" name="deadline">
+                </div>
+                <div class="form-group">
+                    <label for="status">ステータス</label>
+                    <select id="status" name="status">
+                        <option value="interested">検討中</option>
+                        <option value="本選">📌 本選</option>
+                        <option value="applied">応募済</option>
+                        <option value="interviewing">面接中</option>
+                        <option value="offered">内定</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="location">勤務地</label>
+                <input type="text" id="location" name="location" placeholder="例: 東京都">
+            </div>
+            <div class="form-group">
+                <label for="salary">給与</label>
+                <input type="text" id="salary" name="salary" placeholder="例: 月給25万円">
+            </div>
+            <div class="form-group">
+                <label for="notes">メモ</label>
+                <textarea id="notes" name="notes" rows="3" placeholder="メモを入力..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">キャンセル</button>
+                <button type="submit" class="btn btn-primary">追加</button>
+            </div>
+        </form>
+    `);
+    }
+
+    async function submitJob(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = Object.fromEntries(new FormData(form));
+        try {
+            const res = await fetch('/api/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (res.ok) {
+                closeModal();
+                location.reload();
+            } else {
+                const err = await res.json();
+                showToast(err.error || 'Error', 'error');
+            }
+        } catch (err) {
+            showToast('作成に失敗しました', 'error');
+        }
+    }
+
+    async function deleteJob(id, btn) {
+        // Two-click confirmation
+        if (!btn.dataset.confirmed) {
+            btn.dataset.confirmed = 'true';
+            btn.innerHTML = '🗑️ 本当に？';
+            btn.style.background = '#ff4757';
+            btn.style.color = '#fff';
+            setTimeout(() => { btn.dataset.confirmed = ''; btn.innerHTML = '🗑️ 削除'; btn.style.background = ''; btn.style.color = '#ff4757'; }, 3000);
+            return;
+        }
+        try {
+            const res = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast('削除しました', 'success');
+                location.reload();
+            } else {
+                showToast('削除に失敗しました', 'error');
+            }
+        } catch (err) {
+            showToast('削除に失敗しました', 'error');
+        }
+    }
+
+    function filterJobs() {
+        const status = document.getElementById('status-filter').value;
+        const industry = document.getElementById('industry-filter').value;
+        const params = new URLSearchParams(location.search);
+        if (status) params.set('status', status);
+        else params.delete('status');
+        if (industry) params.set('industry', industry);
+        else params.delete('industry');
+        location.href = '/jobs?' + params.toString();
+    }
+
+    function filterByDeadline(days) {
+        const params = new URLSearchParams(location.search);
+        if (params.get('deadline_days') == String(days)) {
+            params.delete('deadline_days');  // toggle off
+        } else {
+            params.set('deadline_days', days);
+        }
+        location.href = '/jobs?' + params.toString();
+    }
+
+    const STATUS_FLOW = ['interested', '本選', 'applied', 'interviewing', 'offered'];
+    async function cycleStatus(id, current) {
+        const idx = STATUS_FLOW.indexOf(current);
+        const next = idx >= 0 && idx < STATUS_FLOW.length - 1 ? STATUS_FLOW[idx + 1] : STATUS_FLOW[0];
+        try {
+            await fetch(`/api/jobs/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: next })
+            });
+            location.reload();
+        } catch (err) { }
+    }
+
+    function openEntryPage(event, source, jobUrl, sourceId) {
+        event.preventDefault();
+        event.stopPropagation();
+        let entryUrl = jobUrl;
+
+        if (source === 'gaishishukatsu') {
+            const rid = sourceId.replace('gaishi_', '');
+            entryUrl = `https://gaishishukatsu.com/recruiting_info/view/${rid}`;
+        } else if (source === 'onecareer') {
+            entryUrl = jobUrl;
+        } else if (source === 'mynavi') {
+            entryUrl = jobUrl;
+        } else if (source === 'career_tasu') {
+            entryUrl = jobUrl;
+        } else if (source === 'engineer_shukatu') {
+            entryUrl = jobUrl;
+        }
+
+        window.open(entryUrl, '_blank');
+    }
+
+    // ========== Delete All ==========
+    async function deleteAllJobs(btn) {
+        if (!btn.dataset.confirmed) {
+            btn.dataset.confirmed = 'true';
+            btn.innerHTML = '⚠️ 本当に全削除？';
+            btn.style.background = '#ff4757';
+            btn.style.color = '#fff';
+            setTimeout(() => {
+                btn.dataset.confirmed = '';
+                btn.innerHTML = '🗑️ 全削除';
+                btn.style.background = '';
+                btn.style.color = '#ff4757';
+            }, 4000);
+            return;
+        }
+        try {
+            const res = await fetch('/api/jobs/all?confirm=yes', { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message, 'success');
+                document.getElementById('jobs-list').innerHTML =
+                    '<div class="empty-state"><p>求人データがありません</p></div>';
+                document.getElementById('jobs-count').textContent = '0件表示中';
+                document.getElementById('jobs-total').textContent = '全0件';
+            } else {
+                showToast('削除に失敗しました', 'error');
+            }
+        } catch (err) {
+            showToast('削除に失敗しました', 'error');
+        }
+        btn.dataset.confirmed = '';
+        btn.innerHTML = '🗑️ 全削除';
+        btn.style.background = '';
+        btn.style.color = '#ff4757';
+    }
+
+    // ========== SSE: Real-time Job Push ==========
+    let jobCount = {{ jobs| length }};
+    let eventSource = null;
+
+    function connectSSE() {
+        const indicator = document.getElementById('sse-status');
+        eventSource = new EventSource('/api/jobs/stream');
+
+        eventSource.onopen = () => {
+            indicator.textContent = '🟢 Live';
+            indicator.style.color = '#2ed573';
+        };
+
+        eventSource.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.event === 'connected') return;
+
+                if (data.event === 'created') {
+                    addJobCard(data.job);
+                    jobCount++;
+                    document.getElementById('jobs-count').textContent = `${jobCount}件表示中`;
+                    document.getElementById('jobs-total').textContent = `全${jobCount}件`;
+                    showToast(`🆕 ${data.job.company_name || '新しい求人'}`, 'success');
+                } else if (data.event === 'updated') {
+                    updateJobCard(data.job);
+                } else if (data.event === 'all_deleted') {
+                    document.getElementById('jobs-list').innerHTML =
+                        '<div class="empty-state"><p>求人データがありません</p></div>';
+                    jobCount = 0;
+                    document.getElementById('jobs-count').textContent = '0件表示中';
+                    document.getElementById('jobs-total').textContent = '全0件';
+                }
+            } catch (err) {
+                console.warn('SSE parse error:', err);
+            }
+        };
+
+        eventSource.onerror = () => {
+            indicator.textContent = '🔴 再接続中';
+            indicator.style.color = '#ff4757';
+            eventSource.close();
+            setTimeout(connectSSE, 5000);
+        };
+    }
+
+    function addJobCard(job) {
+        const list = document.getElementById('jobs-list');
+        // Remove empty state if present
+        const empty = list.querySelector('.empty-state');
+        if (empty) empty.remove();
+
+        const card = document.createElement('div');
+        card.className = 'job-card';
+        card.dataset.id = job.id;
+        card.onclick = () => viewJob(job.id);
+        card.style.animation = 'slideIn 0.4s ease-out';
+
+        const source = job.source || 'manual';
+        const status = job.status || 'interested';
+        const position = job.position ? `<span class="job-position">💼 ${(job.position || '').substring(0, 60)}</span>` : '';
+        const location = job.location ? `<span class="job-location" style="font-size:0.78rem;">📍 ${(job.location || '').substring(0, 30)}</span>` : '';
+        const salary = job.salary ? `<span style="font-size:0.78rem; color:#2ed573; font-weight:500;">💰 ${job.salary}</span>` : '';
+        const deadline = job.deadline ? `<span class="job-deadline" style="margin-top:6px;">📅 ${job.deadline}</span>` : '';
+        const jobUrl = job.job_url || '';
+        const updated = (job.updated_at || '').substring(0, 10);
+
+        card.innerHTML = `
+            <div class="job-card-header">
+                <div class="job-company">
+                    <h3 class="company-name">${job.company_name || ''}</h3>
+                    ${source !== 'manual' ? `<span class="source-tag source-${source}">${source}</span>` : ''}
+                </div>
+                <span class="status-badge status-${status}"
+                    onclick="event.stopPropagation(); cycleStatus(${job.id}, '${status}')">
+                    ${status}
+                </span>
+            </div>
+            <div class="job-card-body">
+                ${position}
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;">
+                    ${location}${salary}
+                </div>
+                ${deadline}
+            </div>
+            <div class="job-card-footer">
+                ${jobUrl ? `<a href="${jobUrl}" target="_blank" class="btn-text" onclick="event.stopPropagation()">🔗 サイトを開く</a>` : ''}
+                <span class="job-updated">更新: ${updated}</span>
+                <button class="btn btn-sm" style="color:#ff4757;border-color:#ff4757;margin-left:auto;"
+                    onclick="event.stopPropagation(); deleteJob(${job.id}, this)" title="削除">🗑️ 削除</button>
+            </div>
+        `;
+
+        // Prepend to top of list
+        list.insertBefore(card, list.firstChild);
+    }
+
+    function updateJobCard(job) {
+        if (!job || !job.id) return;
+        const card = document.querySelector(`.job-card[data-id="${job.id}"]`);
+        if (!card) return;  // Card not visible (filtered)
+
+        // Update specific fields if provided
+        if (job.company_name) {
+            const name = card.querySelector('.company-name');
+            if (name) name.textContent = job.company_name;
+        }
+        if (job.position) {
+            let pos = card.querySelector('.job-position');
+            if (pos) pos.textContent = '💼 ' + (job.position || '').substring(0, 60);
+        }
+        if (job.location) {
+            let loc = card.querySelector('.job-location');
+            if (loc) loc.textContent = '📍 ' + (job.location || '').substring(0, 30);
+        }
+        if (job.salary) {
+            // Salary span doesn't have a class, but we can find it by the 💰 prefix
+            const body = card.querySelector('.job-card-body');
+            if (body) {
+                const spans = body.querySelectorAll('span');
+                for (const s of spans) {
+                    if (s.textContent.includes('💰')) {
+                        s.textContent = '💰 ' + job.salary;
+                        break;
+                    }
+                }
+            }
+        }
+        if (job.deadline) {
+            let dl = card.querySelector('.job-deadline');
+            if (dl) dl.textContent = '📅 ' + job.deadline;
+        }
+        if (job.status) {
+            let badge = card.querySelector('.status-badge');
+            if (badge) {
+                badge.className = `status-badge status-${job.status}`;
+                badge.textContent = job.status;
+            }
+        }
+        if (job.ai_summary) {
+            const preview = card.querySelector('.ai-analysis-preview');
+            if (preview) {
+                preview.innerHTML = job.ai_summary.split('\n').slice(0, 3)
+                    .map(l => `<div style="margin-bottom:2px;">${l}</div>`).join('');
+            }
+        }
+
+        // Brief highlight flash
+        card.style.animation = 'none';
+        card.offsetHeight;  // trigger reflow
+        card.style.animation = 'slideIn 0.4s ease-out';
+    }
+
+    // Connect SSE on page load
+    connectSSE();
+</script>
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード - 就活エージェント{% endblock %}
+{% block page_title %}ダッシュボード{% endblock %}
+
+{% block top_actions %}
+<button class="btn btn-primary btn-sm" onclick="triggerAllScrape()">
+    🔄 全サイト同期
+</button>
+<button class="btn btn-outline btn-sm" onclick="triggerScrape()">
+    マイナビ
+</button>
+<button class="btn btn-outline btn-sm" onclick="triggerGaishiScrape()">
+    外資就活
+</button>
+<button class="btn btn-outline btn-sm" onclick="triggerCareerTasuScrape()">
+    キャリタス
+</button>
+<button class="btn btn-outline btn-sm" onclick="triggerOneCareerScrape()">
+    ワンキャリア
+</button>
+<button class="btn btn-outline btn-sm" onclick="triggerEngShukatuScrape()">
+    エンジニア就活
+</button>
+{% endblock %}
+
+{% block content %}
+{% set status_labels = {
+'interested': '検討中', 'seminar': '説明会', 'seminar_fast': '早期選考',
+'casual': 'カジュアル', 'applied': '応募済', 'es_passed': 'ES通過',
+'spi': 'SPI', 'gd': 'GD', 'interview_1': '一次面接',
+'interview_2': '二次面接', 'interview_final': '最終面接',
+'本選': '本選', 'offered': '内定', 'accepted': '承諾',
+'rejected': '不合格', 'withdrawn': '辞退'
+} %}
+<div class="dashboard-grid">
+    <!-- ★ 本選・締切3日以内 (top priority) -->
+    <section class="card honsen-urgent-card"
+        style="border: 2px solid #ff4757; background: linear-gradient(135deg, rgba(255,71,87,0.08) 0%, rgba(255,71,87,0.02) 100%);">
+        <div class="card-header" style="border-bottom: 1px solid rgba(255,71,87,0.3);">
+            <h2 style="color: #ff4757;">🚨 本選・締切3日以内</h2>
+            <span class="count-badge {% if honsen_urgent|length > 0 %}urgent{% endif %}"
+                style="{% if honsen_urgent|length > 0 %}background:#ff4757;{% endif %}">{{ honsen_urgent|length
+                }}件</span>
+        </div>
+        <div class="card-body">
+            {% if honsen_urgent %}
+            {% for job in honsen_urgent %}
+            {% set days_left = (job.deadline | string)[:10] %}
+            <div class="list-item urgent-item" onclick="viewJob({{ job.id }})"
+                style="border-left: 3px solid #ff4757; margin-bottom: 8px;">
+                <div class="list-item-main">
+                    <span class="company-name" style="font-weight:700;">{{ job.company_name }}</span>
+                    <span class="status-badge status-{{ job.status }}" style="font-size:0.75rem;">{{
+                        status_labels.get(job.status, job.status) }}</span>
+                </div>
+                <div class="list-item-actions">
+                    <span style="color:#ff4757; font-weight:700; font-size:0.9rem;">📅 {{ job.deadline }}</span>
+                    {% if job.job_url %}
+                    <a href="{{ job.job_url }}" target="_blank" class="btn-icon" title="企業ページを開く"
+                        onclick="event.stopPropagation()">🔗</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state">
+                <span class="empty-icon">✅</span>
+                <p>3日以内に締切の本選はありません</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Stats Cards (dynamic — shows all statuses in DB) -->
+    <div class="stats-row">
+        <div class="stat-card stat-total">
+            <div class="stat-number">{{ stats.total }}</div>
+            <div class="stat-label">全求人</div>
+        </div>
+        {% set status_order = ['seminar', 'interested', 'applied', 'es_passed', 'spi', 'gd',
+        'interview_1', 'interview_2', 'interview_final', '本選',
+        'offered', 'accepted', 'rejected', 'withdrawn',
+        'seminar_fast', 'casual'] %}
+        {% for s in status_order %}
+        {% if stats.get(s, 0) > 0 %}
+        <div class="stat-card stat-{{ s }}">
+            <div class="stat-number">{{ stats[s] }}</div>
+            <div class="stat-label">{{ status_labels.get(s, s) }}</div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <!-- Today's Deadlines -->
+    <section class="card deadline-today">
+        <div class="card-header">
+            <h2>⚠️ 本日締切</h2>
+            <span class="count-badge {% if today_deadlines|length > 0 %}urgent{% endif %}">{{ today_deadlines|length
+                }}件</span>
+        </div>
+        <div class="card-body">
+            {% if today_deadlines %}
+            {% for job in today_deadlines %}
+            <div class="list-item urgent-item" onclick="viewJob({{ job.id }})">
+                <div class="list-item-main">
+                    <span class="company-name">{{ job.company_name }}</span>
+                    <span class="position-tag">{{ job.position or '未設定' }}</span>
+                </div>
+                <div class="list-item-actions">
+                    <span class="status-badge status-{{ job.status }}">{{ status_labels.get(job.status, job.status)
+                        }}</span>
+                    {% if job.job_url %}
+                    <a href="{{ job.job_url }}" target="_blank" class="btn-icon" title="サイトを開く"
+                        onclick="event.stopPropagation()">🔗</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state">
+                <span class="empty-icon">✅</span>
+                <p>本日の締切はありません</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Upcoming Deadlines -->
+    <section class="card">
+        <div class="card-header">
+            <h2>📅 今週の締切</h2>
+            <span class="count-badge">{{ upcoming_deadlines|length }}件</span>
+        </div>
+        <div class="card-body">
+            {% if upcoming_deadlines %}
+            {% for job in upcoming_deadlines %}
+            <div class="list-item" onclick="viewJob({{ job.id }})">
+                <div class="list-item-main">
+                    <span class="company-name">{{ job.company_name }}</span>
+                    <span class="deadline-date">{{ job.deadline }}</span>
+                </div>
+                <div class="list-item-actions">
+                    <span class="status-badge status-{{ job.status }}">{{ status_labels.get(job.status, job.status)
+                        }}</span>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state">
+                <p>今週の締切はありません</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Upcoming Interviews -->
+    <section class="card">
+        <div class="card-header">
+            <h2>🎯 面接予定</h2>
+            <span class="count-badge">{{ upcoming_interviews|length }}件</span>
+        </div>
+        <div class="card-body">
+            {% if upcoming_interviews %}
+            {% for iv in upcoming_interviews %}
+            <div class="list-item interview-item">
+                <div class="list-item-main">
+                    <span class="company-name">{{ iv.company_name }}</span>
+                    <span class="interview-type">{{ iv.interview_type or '面接' }}</span>
+                </div>
+                <div class="list-item-meta">
+                    <span class="interview-date">📅 {{ iv.scheduled_at }}</span>
+                    <span class="interview-location">📍 {{ iv.location or iv.online_url or '未設定' }}</span>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state">
+                <p>今週の面接予定はありません</p>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Last Scrape Info -->
+    <section class="card card-sm">
+        <div class="card-header">
+            <h2>🔄 最終同期</h2>
+        </div>
+        <div class="card-body">
+            {% if last_scrape %}
+            <div class="scrape-info">
+                <span class="scrape-status {{ last_scrape.status }}">{{ last_scrape.status }}</span>
+                <span>{{ last_scrape.jobs_found }}件検出 / {{ last_scrape.jobs_updated }}件更新</span>
+                <span class="scrape-time">{{ last_scrape.created_at }}</span>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p>まだスクレイピングを実行していません</p>
+                <button class="btn btn-primary" onclick="triggerScrape()">初回同期を実行</button>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

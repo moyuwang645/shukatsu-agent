@@ -1,0 +1,523 @@
+{% extends "base.html" %}
+
+{% block title %}AIチャット - 就活エージェント{% endblock %}
+{% block page_title %}🤖 AIチャット検索{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <!-- Chat Messages Area -->
+    <div class="card" style="flex:1; display:flex; flex-direction:column; min-height:60vh;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">💬 対話履歴</h3>
+            <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm btn-primary" onclick="newSession()" title="新しい会話を開始">＋ 新しい会話</button>
+                <button class="btn btn-sm btn-outline" onclick="clearChat()" id="btn-clear-chat">クリア</button>
+            </div>
+        </div>
+        <div id="chat-messages"
+            style="flex:1; overflow-y:auto; padding:1rem; display:flex; flex-direction:column; gap:0.75rem; max-height:55vh;">
+            <div class="chat-msg ai">
+                <div class="chat-bubble">
+                    <strong>AI アシスタント</strong><br>
+                    こんにちは！希望する業界・職種・勤務地などを教えてください。<br>
+                    AIが最適な検索キーワードを生成して、自動で求人を検索します。
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="card" style="padding:1rem;">
+        <form onsubmit="sendMessage(event)" id="chat-form" style="display:flex; gap:0.75rem; align-items:center;">
+            <input type="text" id="chat-input" class="form-control" placeholder="例：IT企業でリモートワーク希望、年収400万以上"
+                style="flex:1;" autofocus>
+            <button type="submit" class="btn btn-primary" id="btn-send">送信</button>
+        </form>
+    </div>
+
+    <!-- Keywords Display -->
+    <div class="card" id="keywords-panel" style="display:none; padding:1rem;">
+        <h4 style="margin:0 0 0.5rem;">🔑 検索キーワード <span
+                style="font-size:0.75rem;color:var(--text-muted);font-weight:normal;">（クリックで削除、Enterで追加）</span></h4>
+        <div id="keywords-list" style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;"></div>
+        <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center;">
+            <input type="text" id="keyword-add-input" class="form-control" placeholder="キーワードを追加..."
+                style="flex:1; max-width:200px; padding:0.3rem 0.6rem; font-size:0.85rem;"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();addKeywordManual()}">
+            <button class="btn btn-sm btn-outline" onclick="addKeywordManual()" style="font-size:0.8rem;">＋追加</button>
+            <button class="btn btn-sm btn-accent" onclick="runDirectSearch()" style="font-size:0.8rem;"
+                id="btn-direct-search">🔍 このキーワードで検索</button>
+        </div>
+
+        <!-- Site Filters (collapsible) -->
+        <div id="filters-section" style="display:none; margin-top:0.75rem; border-top:1px solid var(--border-color,#333); padding-top:0.75rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleFiltersExpand()">
+                <h5 style="margin:0; font-size:0.9rem;">⚙️ サイト別フィルター</h5>
+                <span id="filters-toggle-icon" style="font-size:0.8rem; color:var(--text-muted);">▼</span>
+            </div>
+            <div id="filters-body" style="margin-top:0.5rem;">
+                <!-- Engineer Shukatu -->
+                <div class="filter-group">
+                    <label class="filter-label">Engineer就活 業種:</label>
+                    <div id="filter-es-industry" class="filter-tags"></div>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Engineer就活 職種:</label>
+                    <div id="filter-es-occupation" class="filter-tags"></div>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Engineer就活 言語:</label>
+                    <div id="filter-es-language" class="filter-tags"></div>
+                </div>
+                <!-- Gaishishukatsu -->
+                <div class="filter-group">
+                    <label class="filter-label">外資就活:</label>
+                    <div id="filter-gaishi-checkboxes" class="filter-tags"></div>
+                </div>
+                <!-- OneCareer -->
+                <div class="filter-group">
+                    <label class="filter-label">ワンキャリア:</label>
+                    <div id="filter-onecareer-categories" class="filter-tags"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="search-status" style="margin-top:0.75rem; color:var(--text-secondary);"></div>
+    </div>
+</div>
+
+<style>
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .chat-msg {
+        display: flex;
+    }
+
+    .chat-msg.user {
+        justify-content: flex-end;
+    }
+
+    .chat-msg.ai {
+        justify-content: flex-start;
+    }
+
+    .chat-bubble {
+        max-width: 75%;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        line-height: 1.6;
+        font-size: 0.95rem;
+        word-break: break-word;
+    }
+
+    .chat-msg.user .chat-bubble {
+        background: var(--accent-gradient, linear-gradient(135deg, #6366f1, #8b5cf6));
+        color: #fff;
+        border-bottom-right-radius: 4px;
+    }
+
+    .chat-msg.ai .chat-bubble {
+        background: var(--card-bg, #1e1e2e);
+        border: 1px solid var(--border-color, #333);
+        border-bottom-left-radius: 4px;
+    }
+
+    .keyword-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.3rem 0.75rem;
+        border-radius: 20px;
+        background: var(--accent-gradient, linear-gradient(135deg, #6366f1, #8b5cf6));
+        color: #fff;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: default;
+    }
+
+    .keyword-tag .kw-remove {
+        cursor: pointer;
+        opacity: 0.7;
+        font-size: 0.9rem;
+        margin-left: 2px;
+    }
+
+    .keyword-tag .kw-remove:hover {
+        opacity: 1;
+    }
+
+    .chat-typing {
+        opacity: 0.6;
+        font-style: italic;
+    }
+
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .filter-label {
+        font-size: 0.78rem;
+        color: var(--text-muted, #888);
+        min-width: 110px;
+        flex-shrink: 0;
+    }
+    .filter-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+    }
+    .filter-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s;
+        border: 1px solid var(--border-color, #444);
+        user-select: none;
+    }
+    .filter-tag.active {
+        background: var(--accent-gradient, linear-gradient(135deg, #6366f1, #8b5cf6));
+        color: #fff;
+        border-color: transparent;
+    }
+    .filter-tag:not(.active) {
+        background: transparent;
+        color: var(--text-secondary, #aaa);
+    }
+    .filter-tag:hover {
+        opacity: 0.85;
+    }
+</style>
+
+<script>
+    // ========== State (persisted to localStorage) ==========
+    const STORAGE_KEY = 'chat_state';
+
+    let sessionId = null;
+    let chatMessages = [];  // [{role, text}]
+    let currentKeywords = [];
+    let currentSiteFilters = {};  // {engineer_shukatu: {...}, ...}
+    let filtersExpanded = true;
+
+    // Full filter options for rendering toggles
+    const FILTER_OPTIONS = {
+        engineer_shukatu: {
+            arr_industry: ['SIer','ゲーム','WEBサービス・アプリ運営','通信','ITコンサル','AI・人工知能','SaaS/ASPサービス運営','ソフトウェア','システム開発','クラウドサービス','eコマース','情報セキュリティ','スマートフォンアプリ'],
+            arr_occupation: ['システムエンジニア','プログラマー','WEBエンジニア','インフラエンジニア','データサイエンティスト','ITコンサルタント','アプリケーションエンジニア','ネットワークエンジニア'],
+            arr_language: ['Python','Java','JavaScript','TypeScript','Go','C++','C#','Rust','Ruby','PHP','Swift','Scala','kotlin'],
+        },
+        gaishishukatsu: {
+            checkboxes: ['エンジニア志望向け','海外大生歓迎','理系学生歓迎','ITサービス','外資IT','コンサル・シンクタンク','外資系金融・証券','日系IT・通信'],
+        },
+        onecareer: {
+            categories: [
+                {id:1,name:'コンサル'},{id:2,name:'金融'},{id:3,name:'メーカー'},
+                {id:4,name:'商社'},{id:5,name:'IT・通信'},{id:6,name:'広告・マスコミ'},
+                {id:7,name:'人材・教育'},{id:8,name:'インフラ・交通'},
+            ],
+        },
+    };
+
+    function saveState() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            sessionId,
+            chatMessages,
+            currentKeywords,
+            currentSiteFilters,
+        }));
+    }
+
+    function loadState() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+            if (saved) {
+                sessionId = saved.sessionId || null;
+                chatMessages = saved.chatMessages || [];
+                currentKeywords = saved.currentKeywords || [];
+                currentSiteFilters = saved.currentSiteFilters || {};
+            }
+        } catch (e) {
+            console.warn('Chat state load error:', e);
+        }
+    }
+
+    // ========== UI Rendering ==========
+
+    function addMessage(role, text, save = true) {
+        const container = document.getElementById('chat-messages');
+        const div = document.createElement('div');
+        div.className = `chat-msg ${role}`;
+        div.innerHTML = `<div class="chat-bubble">${role === 'ai' ? '<strong>AI</strong><br>' : ''}${text.replace(/\n/g, '<br>')}</div>`;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        if (save) {
+            chatMessages.push({ role, text });
+            saveState();
+        }
+    }
+
+    function showKeywords(keywords) {
+        const panel = document.getElementById('keywords-panel');
+        const list = document.getElementById('keywords-list');
+        list.innerHTML = keywords.map(k =>
+            `<span class="keyword-tag">${k}<span class="kw-remove" onclick="removeKeyword('${k.replace(/'/g, "\\'")}')">✕</span></span>`
+        ).join('');
+        panel.style.display = 'block';
+        currentKeywords = [...keywords];
+        saveState();
+    }
+
+    function removeKeyword(kw) {
+        currentKeywords = currentKeywords.filter(k => k !== kw);
+        showKeywords(currentKeywords);
+    }
+
+    function addKeywordManual() {
+        const input = document.getElementById('keyword-add-input');
+        const kw = input.value.trim();
+        if (!kw) return;
+        if (!currentKeywords.includes(kw)) {
+            currentKeywords.push(kw);
+            showKeywords(currentKeywords);
+        }
+        input.value = '';
+    }
+
+    function renderSavedChat() {
+        const container = document.getElementById('chat-messages');
+        // Clear default greeting
+        container.innerHTML = '';
+
+        if (chatMessages.length === 0) {
+            // Show default greeting
+            addMessage('ai', 'こんにちは！希望する業界・職種・勤務地などを教えてください。\nAIが最適な検索キーワードを生成して、自動で求人を検索します。', false);
+            return;
+        }
+
+        // Restore all messages
+        for (const msg of chatMessages) {
+            addMessage(msg.role, msg.text, false);
+        }
+
+        // Restore keywords panel
+        if (currentKeywords.length > 0) {
+            showKeywords(currentKeywords);
+        }
+    }
+
+    // ========== Chat Actions ==========
+
+    async function sendMessage(e) {
+        e.preventDefault();
+        const input = document.getElementById('chat-input');
+        const msg = input.value.trim();
+        if (!msg) return;
+
+        addMessage('user', msg);
+        input.value = '';
+        addMessage('ai', '<span class="chat-typing">考え中...</span>', false);
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg, session_id: sessionId })
+            });
+            const data = await res.json();
+            // Remove typing indicator
+            const msgs = document.getElementById('chat-messages');
+            msgs.removeChild(msgs.lastChild);
+
+            sessionId = data.session_id;
+            addMessage('ai', data.reply || 'No response');
+            if (data.keywords && data.keywords.length > 0) {
+                showKeywords(data.keywords);
+            }
+            if (data.site_filters && Object.keys(data.site_filters).length > 0) {
+                currentSiteFilters = data.site_filters;
+                renderSiteFilters();
+                saveState();
+            }
+        } catch (err) {
+            const msgs = document.getElementById('chat-messages');
+            msgs.removeChild(msgs.lastChild);
+            addMessage('ai', '通信エラーが発生しました。');
+        }
+    }
+
+    async function runDirectSearch() {
+        if (currentKeywords.length === 0) {
+            alert('キーワードがありません。先に会話でキーワードを生成するか、手動で追加してください。');
+            return;
+        }
+
+        addMessage('ai', `<span class="chat-typing">🔍 ${currentKeywords.join(', ')} で検索中... (数分かかります)</span>`, false);
+        document.getElementById('search-status').textContent = '検索実行中...';
+        document.getElementById('btn-send').disabled = true;
+        document.getElementById('btn-direct-search').disabled = true;
+
+        try {
+            const res = await fetch('/api/chat/search-direct', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keywords: currentKeywords, site_filters: currentSiteFilters })
+            });
+            const data = await res.json();
+            const msgs = document.getElementById('chat-messages');
+            msgs.removeChild(msgs.lastChild);
+
+            let replyText = buildSearchReply(data);
+            addMessage('ai', replyText);
+            document.getElementById('search-status').textContent =
+                `検索完了: ${data.jobs_found || 0}件発見 / ${data.jobs_new || 0}件保存`;
+        } catch (err) {
+            const msgs = document.getElementById('chat-messages');
+            msgs.removeChild(msgs.lastChild);
+            addMessage('ai', '検索に失敗しました。');
+            document.getElementById('search-status').textContent = 'エラー';
+        } finally {
+            document.getElementById('btn-send').disabled = false;
+            document.getElementById('btn-direct-search').disabled = false;
+        }
+    }
+
+    function buildSearchReply(data) {
+        let replyText = data.reply || '検索が完了しました。';
+        if (data.jobs_found > 0) {
+            replyText += `\n\n📊 検索結果: ${data.jobs_found}件発見 / ${data.jobs_new}件新規保存`;
+            if (data.jobs_ai_enriched > 0) {
+                replyText += ` / ${data.jobs_ai_enriched}件AI解析済`;
+            }
+        }
+        if (data.scraper_results && data.scraper_results.length > 0) {
+            replyText += '\n';
+            for (const sr of data.scraper_results) {
+                const icon = sr.status === 'success' ? '✅' : sr.status === 'error' ? '❌' : '⚠️';
+                replyText += `\n${icon} ${sr.source}: ${sr.jobs_found || 0}件`;
+            }
+        }
+        if (data.errors && data.errors.length > 0) {
+            replyText += `\n\n⚠️ エラー: ${data.errors.join(', ')}`;
+        }
+        if (data.jobs_new > 0) {
+            replyText += '\n\n👉 求人一覧ページで確認できます。';
+        }
+        return replyText;
+    }
+
+    function clearChat() {
+        sessionId = null;
+        chatMessages = [];
+        currentKeywords = [];
+        localStorage.removeItem(STORAGE_KEY);
+        _resetChatUI();
+    }
+
+    function newSession() {
+        // GPT-style: start a new session, keep the old one in DB
+        sessionId = null;
+        chatMessages = [];
+        currentKeywords = [];
+        currentSiteFilters = {};
+        saveState();
+        _resetChatUI();
+    }
+
+    function _resetChatUI() {
+        const container = document.getElementById('chat-messages');
+        container.innerHTML = `
+        <div class="chat-msg ai">
+            <div class="chat-bubble">
+                <strong>AI アシスタント</strong><br>
+                こんにちは！希望する業界・職種・勤務地などを教えてください。
+            </div>
+        </div>`;
+        document.getElementById('keywords-panel').style.display = 'none';
+        document.getElementById('search-status').textContent = '';
+    }
+
+    // ========== Site Filters ==========
+
+    function renderSiteFilters() {
+        const section = document.getElementById('filters-section');
+        if (!currentSiteFilters || Object.keys(currentSiteFilters).length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'block';
+
+        // Engineer Shukatu
+        renderFilterTags('filter-es-industry', FILTER_OPTIONS.engineer_shukatu.arr_industry,
+            (currentSiteFilters.engineer_shukatu || {}).arr_industry || [], 'engineer_shukatu', 'arr_industry');
+        renderFilterTags('filter-es-occupation', FILTER_OPTIONS.engineer_shukatu.arr_occupation,
+            (currentSiteFilters.engineer_shukatu || {}).arr_occupation || [], 'engineer_shukatu', 'arr_occupation');
+        renderFilterTags('filter-es-language', FILTER_OPTIONS.engineer_shukatu.arr_language,
+            (currentSiteFilters.engineer_shukatu || {}).arr_language || [], 'engineer_shukatu', 'arr_language');
+
+        // Gaishishukatsu
+        renderFilterTags('filter-gaishi-checkboxes', FILTER_OPTIONS.gaishishukatsu.checkboxes,
+            (currentSiteFilters.gaishishukatsu || {}).checkboxes || [], 'gaishishukatsu', 'checkboxes');
+
+        // OneCareer (uses id-based categories)
+        const ocEl = document.getElementById('filter-onecareer-categories');
+        const activeCats = (currentSiteFilters.onecareer || {}).categories || [];
+        ocEl.innerHTML = FILTER_OPTIONS.onecareer.categories.map(cat => {
+            const isActive = activeCats.includes(cat.id);
+            return `<span class="filter-tag ${isActive ? 'active' : ''}" onclick="toggleOCFilter(${cat.id})">${cat.name}</span>`;
+        }).join('');
+    }
+
+    function renderFilterTags(elementId, allOptions, activeOptions, siteName, filterKey) {
+        const el = document.getElementById(elementId);
+        el.innerHTML = allOptions.map(opt => {
+            const isActive = activeOptions.includes(opt);
+            return `<span class="filter-tag ${isActive ? 'active' : ''}" onclick="toggleFilter('${siteName}','${filterKey}','${opt.replace(/'/g,"\\'")}')">${opt}</span>`;
+        }).join('');
+    }
+
+    function toggleFilter(siteName, filterKey, value) {
+        if (!currentSiteFilters[siteName]) currentSiteFilters[siteName] = {};
+        if (!currentSiteFilters[siteName][filterKey]) currentSiteFilters[siteName][filterKey] = [];
+        const arr = currentSiteFilters[siteName][filterKey];
+        const idx = arr.indexOf(value);
+        if (idx >= 0) arr.splice(idx, 1);
+        else arr.push(value);
+        renderSiteFilters();
+        saveState();
+    }
+
+    function toggleOCFilter(catId) {
+        if (!currentSiteFilters.onecareer) currentSiteFilters.onecareer = {};
+        if (!currentSiteFilters.onecareer.categories) currentSiteFilters.onecareer.categories = [];
+        const arr = currentSiteFilters.onecareer.categories;
+        const idx = arr.indexOf(catId);
+        if (idx >= 0) arr.splice(idx, 1);
+        else arr.push(catId);
+        renderSiteFilters();
+        saveState();
+    }
+
+    function toggleFiltersExpand() {
+        filtersExpanded = !filtersExpanded;
+        document.getElementById('filters-body').style.display = filtersExpanded ? 'block' : 'none';
+        document.getElementById('filters-toggle-icon').textContent = filtersExpanded ? '▼' : '▶';
+    }
+
+    // ========== Init ==========
+    loadState();
+    renderSavedChat();
+    if (Object.keys(currentSiteFilters).length > 0) {
+        renderSiteFilters();
+    }
+</script>
+{% endblock %}

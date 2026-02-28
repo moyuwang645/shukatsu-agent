@@ -1,0 +1,22 @@
+# Core
+Flask==3.1.0
+APScheduler==3.11.0
+python-dotenv==1.0.1
+
+# Browser automation
+playwright==1.49.1
+
+# Gmail API
+google-api-python-client==2.159.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+# Scraping & HTTP
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+cryptography==44.0.0
+
+# ES Document Parsing (Phase 3 — install when needed)
+python-docx>=1.1.0
+pdfplumber>=0.11.0
+Pillow>=10.0.0

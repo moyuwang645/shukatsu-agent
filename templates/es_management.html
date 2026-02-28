@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}ES管理 - 就活エージェント{% endblock %}
+{% block page_title %}📄 ES管理{% endblock %}
+
+{% block top_actions %}
+<button class="btn btn-primary" onclick="document.getElementById('upload-modal').style.display='flex'"
+    id="btn-upload-es">
+    ＋ ES をアップロード
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- ES Document List -->
+<div class="card">
+    <div class="card-header">
+        <h3 style="margin:0;">保存済みES一覧</h3>
+    </div>
+    <div id="es-list">
+        {% if es_docs %}
+        <table class="data-table" id="es-table">
+            <thead>
+                <tr>
+                    <th>タイトル</th>
+                    <th>ファイル種類</th>
+                    <th>作成日</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in es_docs %}
+                <tr id="es-row-{{ doc.id }}">
+                    <td>
+                        <a href="#" onclick="viewES({{ doc.id }}); return false;" style="color:var(--accent-color);">
+                            {{ doc.title or doc.file_path }}
+                        </a>
+                    </td>
+                    <td><span class="badge-sm">{{ doc.file_type or '不明' }}</span></td>
+                    <td>{{ doc.created_at[:10] if doc.created_at else '-' }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="viewES({{ doc.id }})">詳細</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteES({{ doc.id }}, this)">削除</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding:2rem; text-align:center; color:var(--text-secondary);">
+            <p style="font-size:1.2rem;">📂 まだESがアップロードされていません</p>
+            <p>右上の「＋ ES をアップロード」ボタンからPDF・Word・画像ファイルをアップロードしてください。</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ES Detail Panel -->
+<div class="card" id="es-detail" style="display:none; margin-top:1rem;">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;" id="es-detail-title">ES詳細</h3>
+        <button class="btn btn-sm btn-outline"
+            onclick="document.getElementById('es-detail').style.display='none'">閉じる</button>
+    </div>
+    <div style="padding:1rem; display:grid; gap:1rem;">
+        <div>
+            <label style="font-weight:600; color:var(--accent-color);">自己PR</label>
+            <div id="es-self-pr" class="es-text-block"></div>
+        </div>
+        <div>
+            <label style="font-weight:600; color:var(--accent-color);">志望動機</label>
+            <div id="es-motivation" class="es-text-block"></div>
+        </div>
+        <div>
+            <label style="font-weight:600; color:var(--accent-color);">強み</label>
+            <div id="es-strengths" class="es-text-block"></div>
+        </div>
+        <div>
+            <label style="font-weight:600; color:var(--accent-color);">経験</label>
+            <div id="es-experience" class="es-text-block"></div>
+        </div>
+    </div>
+    <!-- AI Customize -->
+    <div style="padding:1rem; border-top:1px solid var(--border-color);">
+        <h4>🤖 企業別にカスタマイズ</h4>
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:end;">
+            <div style="flex:1; min-width:200px;">
+                <label>求人ID</label>
+                <input type="number" id="customize-job-id" class="form-control" placeholder="求人ID" min="1">
+            </div>
+            <button class="btn btn-accent" onclick="generateCustomES()" id="btn-generate-es">AI生成</button>
+        </div>
+        <div id="custom-es-result" style="margin-top:1rem; display:none;">
+            <div style="display:grid; gap:1rem;">
+                <div>
+                    <label style="font-weight:600; color:#22c55e;">AI自己PR</label>
+                    <div id="custom-self-pr" class="es-text-block" style="border-color:#22c55e;"></div>
+                </div>
+                <div>
+                    <label style="font-weight:600; color:#22c55e;">AI志望動機</label>
+                    <div id="custom-motivation" class="es-text-block" style="border-color:#22c55e;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="upload-modal"
+    style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); justify-content:center; align-items:center;">
+    <div class="card" style="width:90%; max-width:500px;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">📄 ESアップロード</h3>
+            <button class="btn btn-sm btn-outline"
+                onclick="this.closest('#upload-modal').style.display='none'">✕</button>
+        </div>
+        <form id="upload-form" onsubmit="uploadES(event)" style="padding:1rem; display:grid; gap:1rem;">
+            <div>
+                <label>タイトル</label>
+                <input type="text" name="title" class="form-control" placeholder="例: 2026年度 自己PR基本" id="es-title-input">
+            </div>
+            <div>
+                <label>ファイル (PDF, DOCX, JPG, PNG)</label>
+                <input type="file" name="file" class="form-control" accept=".pdf,.docx,.jpg,.jpeg,.png" required
+                    id="es-file-input">
+            </div>
+            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" class="btn btn-outline"
+                    onclick="this.closest('#upload-modal').style.display='none'">キャンセル</button>
+                <button type="submit" class="btn btn-primary" id="btn-upload-submit">アップロード＆解析</button>
+            </div>
+        </form>
+        <div id="upload-status" style="padding:0 1rem 1rem; display:none; color:var(--text-secondary);"></div>
+    </div>
+</div>
+
+<style>
+    .es-text-block {
+        background: var(--card-bg, #1e1e2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        line-height: 1.8;
+        font-size: 0.95rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+        min-height: 3rem;
+    }
+
+    .badge-sm {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 10px;
+        background: var(--accent-gradient, linear-gradient(135deg, #6366f1, #8b5cf6));
+        color: #fff;
+        font-size: 0.8rem;
+    }
+</style>
+
+<script>
+    let currentEsId = null;
+
+    async function uploadES(e) {
+        e.preventDefault();
+        const form = document.getElementById('upload-form');
+        const status = document.getElementById('upload-status');
+        const fd = new FormData(form);
+
+        status.style.display = 'block';
+        status.textContent = '解析中...（AI構造化処理を実行中）';
+
+        try {
+            const res = await fetch('/api/es/upload', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.error) {
+                status.textContent = 'エラー: ' + data.error;
+                return;
+            }
+            status.textContent = `保存完了 (ID: ${data.id})`;
+            setTimeout(() => location.reload(), 1000);
+        } catch (err) {
+            status.textContent = '通信エラー';
+        }
+    }
+
+    async function viewES(id) {
+        currentEsId = id;
+        try {
+            const res = await fetch(`/api/es/${id}`);
+            const data = await res.json();
+            if (data.error) { alert(data.error); return; }
+
+            document.getElementById('es-detail-title').textContent = data.title || 'ES詳細';
+            const p = data.parsed || {};
+            document.getElementById('es-self-pr').textContent = p.self_pr || '（未抽出）';
+            document.getElementById('es-motivation').textContent = p.motivation || '（未抽出）';
+            document.getElementById('es-strengths').textContent = Array.isArray(p.strengths) ? p.strengths.join('、') : (p.strengths || '（未抽出）');
+            document.getElementById('es-experience').textContent = p.experience || '（未抽出）';
+            document.getElementById('es-detail').style.display = 'block';
+            document.getElementById('custom-es-result').style.display = 'none';
+            document.getElementById('es-detail').scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            alert('読み込みに失敗しました');
+        }
+    }
+
+    async function deleteES(id, btn) {
+        if (btn && !btn.dataset.confirmed) {
+            btn.dataset.confirmed = 'true';
+            btn.textContent = '確認？';
+            setTimeout(() => { btn.dataset.confirmed = ''; btn.textContent = '削除'; }, 3000);
+            return;
+        }
+        try {
+            await fetch(`/api/es/${id}`, { method: 'DELETE' });
+            document.getElementById(`es-row-${id}`)?.remove();
+            if (currentEsId === id) {
+                document.getElementById('es-detail').style.display = 'none';
+            }
+        } catch (err) { showToast('削除に失敗しました', 'error'); }
+    }
+
+    async function generateCustomES() {
+        const jobId = document.getElementById('customize-job-id').value;
+        if (!currentEsId || !jobId) {
+            alert('ESと求人IDを指定してください');
+            return;
+        }
+
+        const btn = document.getElementById('btn-generate-es');
+        btn.disabled = true;
+        btn.textContent = 'AI生成中...';
+
+        try {
+            const res = await fetch('/api/es/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ es_id: currentEsId, job_id: parseInt(jobId) })
+            });
+            const data = await res.json();
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            document.getElementById('custom-self-pr').textContent = data.custom_self_pr || '';
+            document.getElementById('custom-motivation').textContent = data.custom_motivation || '';
+            document.getElementById('custom-es-result').style.display = 'block';
+        } catch (err) {
+            alert('AI生成に失敗しました');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'AI生成';
+        }
+    }
+</script>
+{% endblock %}
