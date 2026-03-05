@@ -131,9 +131,11 @@ def init_scheduler():
         replace_existing=True,
         name='Keyword search afternoon (15:00)'
     )
+    # Periodic Gmail check — delay first run to avoid duplicating the startup Timer
+    from datetime import datetime as _dt, timedelta as _td
     scheduler.add_job(
         check_gmail,
-        IntervalTrigger(hours=2),
+        IntervalTrigger(hours=2, start_date=_dt.now() + _td(hours=2)),
         id='check_gmail_periodic',
         replace_existing=True,
         name='Gmail periodic check'

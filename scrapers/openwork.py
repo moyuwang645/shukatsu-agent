@@ -143,6 +143,12 @@ async def _fetch_scores(company_name: str) -> dict | None:
 
     except Exception as e:
         logger.exception(f"[openwork] Scraping failed for {company_name}: {e}")
+        # Ensure Playwright is cleaned up even on error
+        try:
+            if 'pw' in dir() and pw:
+                await pw.stop()
+        except Exception:
+            pass
 
     return result
 

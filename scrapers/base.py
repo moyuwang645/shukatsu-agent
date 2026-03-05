@@ -285,8 +285,16 @@ class BaseScraper(ABC):
             result['error_message'] = str(e)
             logger.exception(f"[{self.name}] Pipeline error: {e}")
         finally:
-            if self.browser:
-                await self.browser.close()
+            try:
+                if self.browser:
+                    await self.browser.close()
+            except Exception:
+                pass
+            try:
+                if pw:
+                    await pw.stop()
+            except Exception:
+                pass
 
         return result
 

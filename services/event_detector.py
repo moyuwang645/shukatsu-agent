@@ -79,6 +79,7 @@ EVENT_TYPE_TO_STATUS = {
     'interview': 'interview_1',
     'offer': 'offered',
     'rejection': 'rejected',
+    'mypage': 'applied',
 }
 
 
@@ -220,6 +221,36 @@ def auto_register_interview(email_data: dict) -> None:
 
     # 4. Match to existing job or create new one
     job_id = match_or_create_job(company_name, ai)
+
+    # 4b. Auto-save MyPage credentials if present in AI output
+    if ai:
+        _mp_url = ai.get('mypage_url', '')
+        if _mp_url and _mp_url not in ('なし', 'null', None, ''):
+            _mp_user = ai.get('mypage_username', '')
+            _mp_pass = ai.get('mypage_password', '')
+            _mp_user = '' if _mp_user in ('なし', 'null', None) else _mp_user
+            _mp_pass = '' if _mp_pass in ('なし', 'null', None) else _mp_pass
+            try:
+                from db.mypages import save_mypage_credential
+                save_mypage_credential(
+                    job_id=job_id,
+                    login_url=_mp_url,
+                    username=_mp_user,
+                    password=_mp_pass,
+                    source_email_id=email_data.get('id', '')
+                )
+                logger.info(f"🔐 MyPage auto-saved: {company_name} → {_mp_url}")
+                # Auto-enqueue login bot if username and password are available
+                if _mp_user and _mp_pass:
+                    try:
+                        from db.task_queue import enqueue
+                        enqueue('mypage_login', priority=4,
+                                params={'job_id': job_id})
+                        logger.info(f"🔐→🤖 Enqueued mypage_login for job_id={job_id}")
+                    except Exception as eq:
+                        logger.warning(f"🔐 mypage_login enqueue failed: {eq}")
+            except Exception as e:
+                logger.warning(f"🔐 MyPage save failed for {company_name}: {e}")
 
     # Helper: treat 'なし' and null as empty
     def _ai_val(key):

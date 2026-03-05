@@ -128,47 +128,47 @@ def init_llm_tables(cursor=None):
     Uses its own DB connection to avoid SQLite transaction conflicts
     when called from init_db() which uses executescript().
     """
-    from db import get_db
-    conn = get_db()
-    c = conn.cursor()
-    
-    # Execute each CREATE TABLE as individual statements
+    from db import get_db_connection
     import re
-    clean_sql = re.sub(r'--[^\n]*', '', LLM_TABLES_SQL)
-    for stmt in clean_sql.split(';'):
-        stmt = stmt.strip()
-        if stmt:
-            c.execute(stmt)
 
-    # Seed default filter rules if table is empty
-    c.execute("SELECT COUNT(*) FROM email_filter_rules")
-    if c.fetchone()[0] == 0:
-        for rule_type, pattern, desc in _DEFAULT_FILTER_RULES:
-            c.execute(
-                "INSERT INTO email_filter_rules (rule_type, pattern, description) VALUES (?, ?, ?)",
-                (rule_type, pattern, desc)
-            )
+    with get_db_connection() as conn:
+        c = conn.cursor()
 
-    # Seed default model configs if table is empty
-    c.execute("SELECT COUNT(*) FROM llm_model_config")
-    if c.fetchone()[0] == 0:
-        defaults = [
-            ('chat', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.7, 4096),
-            ('email', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.3, 2048),
-            ('job', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.5, 2048),
-            ('job_detail', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.2, 3000),
-            ('filter', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.1, 1024),
-            ('es', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.7, 4096),
-        ]
-        for wf, prov, model, url, temp, tokens in defaults:
-            c.execute(
-                "INSERT INTO llm_model_config (workflow, provider, model_name, endpoint_url, temperature, max_tokens) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (wf, prov, model, url, temp, tokens)
-            )
+        # Execute each CREATE TABLE as individual statements
+        clean_sql = re.sub(r'--[^\n]*', '', LLM_TABLES_SQL)
+        for stmt in clean_sql.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                c.execute(stmt)
 
-    conn.commit()
-    conn.close()
+        # Seed default filter rules if table is empty
+        c.execute("SELECT COUNT(*) FROM email_filter_rules")
+        if c.fetchone()[0] == 0:
+            for rule_type, pattern, desc in _DEFAULT_FILTER_RULES:
+                c.execute(
+                    "INSERT INTO email_filter_rules (rule_type, pattern, description) VALUES (?, ?, ?)",
+                    (rule_type, pattern, desc)
+                )
+
+        # Seed default model configs if table is empty
+        c.execute("SELECT COUNT(*) FROM llm_model_config")
+        if c.fetchone()[0] == 0:
+            defaults = [
+                ('chat', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.7, 4096),
+                ('email', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.3, 2048),
+                ('job', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.5, 2048),
+                ('job_detail', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.2, 3000),
+                ('filter', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.1, 1024),
+                ('es', 'deepseek', 'deepseek-chat', 'https://api.deepseek.com/v1', 0.7, 4096),
+            ]
+            for wf, prov, model, url, temp, tokens in defaults:
+                c.execute(
+                    "INSERT INTO llm_model_config (workflow, provider, model_name, endpoint_url, temperature, max_tokens) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (wf, prov, model, url, temp, tokens)
+                )
+
+        conn.commit()
 
 
 # ===================================================================
@@ -178,30 +178,28 @@ def init_llm_tables(cursor=None):
 def add_api_key(provider: str, api_key: str, label: str = '',
                 rpm_limit: int = 10, daily_limit: int = 1000) -> int:
     """Add a new API key (encrypted) and return its ID."""
-    from db import get_db
-    conn = get_db()
+    from db import get_db_connection
     encrypted = encrypt_value(api_key)
-    cursor = conn.execute(
-        "INSERT INTO llm_api_keys (provider, api_key_encrypted, label, rpm_limit, daily_limit) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (provider, encrypted, label, rpm_limit, daily_limit)
-    )
-    conn.commit()
-    key_id = cursor.lastrowid
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO llm_api_keys (provider, api_key_encrypted, label, rpm_limit, daily_limit) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (provider, encrypted, label, rpm_limit, daily_limit)
+        )
+        conn.commit()
+        key_id = cursor.lastrowid
     logger.info(f"[llm_settings] Added API key id={key_id} provider={provider} label={label}")
     return key_id
 
 
 def get_all_api_keys(include_secret: bool = False) -> list[dict]:
     """List all API keys. Secrets are masked unless include_secret=True."""
-    from db import get_db
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT id, provider, api_key_encrypted, label, enabled, rpm_limit, daily_limit, created_at "
-        "FROM llm_api_keys ORDER BY id"
-    ).fetchall()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, provider, api_key_encrypted, label, enabled, rpm_limit, daily_limit, created_at "
+            "FROM llm_api_keys ORDER BY id"
+        ).fetchall()
 
     result = []
     for r in rows:
@@ -225,22 +223,20 @@ def get_all_api_keys(include_secret: bool = False) -> list[dict]:
 
 def delete_api_key(key_id: int):
     """Delete an API key by ID."""
-    from db import get_db
-    conn = get_db()
-    conn.execute("DELETE FROM llm_api_keys WHERE id = ?", (key_id,))
-    conn.commit()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM llm_api_keys WHERE id = ?", (key_id,))
+        conn.commit()
     logger.info(f"[llm_settings] Deleted API key id={key_id}")
 
 
 def toggle_api_key(key_id: int) -> bool:
     """Toggle enabled status of an API key. Returns new enabled state."""
-    from db import get_db
-    conn = get_db()
-    conn.execute("UPDATE llm_api_keys SET enabled = 1 - enabled WHERE id = ?", (key_id,))
-    conn.commit()
-    row = conn.execute("SELECT enabled FROM llm_api_keys WHERE id = ?", (key_id,)).fetchone()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        conn.execute("UPDATE llm_api_keys SET enabled = 1 - enabled WHERE id = ?", (key_id,))
+        conn.commit()
+        row = conn.execute("SELECT enabled FROM llm_api_keys WHERE id = ?", (key_id,)).fetchone()
     new_state = bool(row['enabled']) if row else False
     logger.info(f"[llm_settings] Toggled API key id={key_id} → enabled={new_state}")
     return new_state
@@ -248,20 +244,19 @@ def toggle_api_key(key_id: int) -> bool:
 
 def get_enabled_keys(provider: str = None) -> list[dict]:
     """Get all enabled API keys, optionally filtered by provider. Includes decrypted key."""
-    from db import get_db
-    conn = get_db()
-    if provider:
-        rows = conn.execute(
-            "SELECT id, provider, api_key_encrypted, label, rpm_limit, daily_limit "
-            "FROM llm_api_keys WHERE enabled = 1 AND provider = ? ORDER BY id",
-            (provider,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, provider, api_key_encrypted, label, rpm_limit, daily_limit "
-            "FROM llm_api_keys WHERE enabled = 1 ORDER BY id"
-        ).fetchall()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        if provider:
+            rows = conn.execute(
+                "SELECT id, provider, api_key_encrypted, label, rpm_limit, daily_limit "
+                "FROM llm_api_keys WHERE enabled = 1 AND provider = ? ORDER BY id",
+                (provider,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, provider, api_key_encrypted, label, rpm_limit, daily_limit "
+                "FROM llm_api_keys WHERE enabled = 1 ORDER BY id"
+            ).fetchall()
 
     return [{
         'id': r['id'],
@@ -279,12 +274,11 @@ def get_enabled_keys(provider: str = None) -> list[dict]:
 
 def get_model_config(workflow: str) -> dict | None:
     """Get model configuration for a specific workflow."""
-    from db import get_db
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM llm_model_config WHERE workflow = ?", (workflow,)
-    ).fetchone()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM llm_model_config WHERE workflow = ?", (workflow,)
+        ).fetchone()
     if row:
         return dict(row)
     return None
@@ -292,10 +286,9 @@ def get_model_config(workflow: str) -> dict | None:
 
 def get_all_model_configs() -> list[dict]:
     """Get all workflow model configurations."""
-    from db import get_db
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM llm_model_config ORDER BY workflow").fetchall()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM llm_model_config ORDER BY workflow").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -303,19 +296,18 @@ def save_model_config(workflow: str, provider: str, model_name: str,
                       endpoint_url: str = '', temperature: float = 0.7,
                       max_tokens: int = 4096):
     """Insert or update model config for a workflow."""
-    from db import get_db
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO llm_model_config (workflow, provider, model_name, endpoint_url, temperature, max_tokens, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
-        "ON CONFLICT(workflow) DO UPDATE SET "
-        "provider=excluded.provider, model_name=excluded.model_name, "
-        "endpoint_url=excluded.endpoint_url, temperature=excluded.temperature, "
-        "max_tokens=excluded.max_tokens, updated_at=CURRENT_TIMESTAMP",
-        (workflow, provider, model_name, endpoint_url, temperature, max_tokens)
-    )
-    conn.commit()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO llm_model_config (workflow, provider, model_name, endpoint_url, temperature, max_tokens, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(workflow) DO UPDATE SET "
+            "provider=excluded.provider, model_name=excluded.model_name, "
+            "endpoint_url=excluded.endpoint_url, temperature=excluded.temperature, "
+            "max_tokens=excluded.max_tokens, updated_at=CURRENT_TIMESTAMP",
+            (workflow, provider, model_name, endpoint_url, temperature, max_tokens)
+        )
+        conn.commit()
     logger.info(f"[llm_settings] Saved model config: {workflow} → {provider}/{model_name}")
 
 
@@ -325,59 +317,54 @@ def save_model_config(workflow: str, provider: str, model_name: str,
 
 def get_all_filter_rules() -> list[dict]:
     """Get all email filter rules."""
-    from db import get_db
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM email_filter_rules ORDER BY rule_type, id"
-    ).fetchall()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM email_filter_rules ORDER BY rule_type, id"
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_enabled_filter_rules() -> list[dict]:
     """Get only enabled filter rules."""
-    from db import get_db
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM email_filter_rules WHERE enabled = 1 ORDER BY rule_type, id"
-    ).fetchall()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM email_filter_rules WHERE enabled = 1 ORDER BY rule_type, id"
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
 def add_filter_rule(rule_type: str, pattern: str, description: str = '') -> int:
     """Add a new email filter rule. Returns the new rule ID."""
-    from db import get_db
-    conn = get_db()
-    cursor = conn.execute(
-        "INSERT INTO email_filter_rules (rule_type, pattern, description) VALUES (?, ?, ?)",
-        (rule_type, pattern, description)
-    )
-    conn.commit()
-    rule_id = cursor.lastrowid
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO email_filter_rules (rule_type, pattern, description) VALUES (?, ?, ?)",
+            (rule_type, pattern, description)
+        )
+        conn.commit()
+        rule_id = cursor.lastrowid
     logger.info(f"[llm_settings] Added filter rule id={rule_id}: {rule_type} → {pattern}")
     return rule_id
 
 
 def delete_filter_rule(rule_id: int):
     """Delete a filter rule by ID."""
-    from db import get_db
-    conn = get_db()
-    conn.execute("DELETE FROM email_filter_rules WHERE id = ?", (rule_id,))
-    conn.commit()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM email_filter_rules WHERE id = ?", (rule_id,))
+        conn.commit()
     logger.info(f"[llm_settings] Deleted filter rule id={rule_id}")
 
 
 def toggle_filter_rule(rule_id: int) -> bool:
     """Toggle enabled status of a filter rule. Returns new state."""
-    from db import get_db
-    conn = get_db()
-    conn.execute("UPDATE email_filter_rules SET enabled = 1 - enabled WHERE id = ?", (rule_id,))
-    conn.commit()
-    row = conn.execute("SELECT enabled FROM email_filter_rules WHERE id = ?", (rule_id,)).fetchone()
-    conn.close()
+    from db import get_db_connection
+    with get_db_connection() as conn:
+        conn.execute("UPDATE email_filter_rules SET enabled = 1 - enabled WHERE id = ?", (rule_id,))
+        conn.commit()
+        row = conn.execute("SELECT enabled FROM email_filter_rules WHERE id = ?", (rule_id,)).fetchone()
     return bool(row['enabled']) if row else False
 
 
@@ -387,68 +374,64 @@ def toggle_filter_rule(rule_id: int) -> bool:
 
 def increment_usage(key_id: int, tokens: int = 0):
     """Increment the daily call counter for a specific key."""
-    from db import get_db
+    from db import get_db_connection
     today = date.today().isoformat()
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO llm_daily_usage (usage_date, key_id, call_count, token_count) "
-        "VALUES (?, ?, 1, ?) "
-        "ON CONFLICT(usage_date, key_id) DO UPDATE SET "
-        "call_count = call_count + 1, token_count = token_count + ?",
-        (today, key_id, tokens, tokens)
-    )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO llm_daily_usage (usage_date, key_id, call_count, token_count) "
+            "VALUES (?, ?, 1, ?) "
+            "ON CONFLICT(usage_date, key_id) DO UPDATE SET "
+            "call_count = call_count + 1, token_count = token_count + ?",
+            (today, key_id, tokens, tokens)
+        )
+        conn.commit()
 
 
 def get_daily_usage(key_id: int = None) -> list[dict]:
     """Get today's usage, optionally filtered by key."""
-    from db import get_db
+    from db import get_db_connection
     today = date.today().isoformat()
-    conn = get_db()
-    if key_id is not None:
-        rows = conn.execute(
-            "SELECT * FROM llm_daily_usage WHERE usage_date = ? AND key_id = ?",
-            (today, key_id)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT u.*, k.label, k.provider, k.daily_limit "
-            "FROM llm_daily_usage u "
-            "LEFT JOIN llm_api_keys k ON u.key_id = k.id "
-            "WHERE u.usage_date = ?",
-            (today,)
-        ).fetchall()
-    conn.close()
+    with get_db_connection() as conn:
+        if key_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM llm_daily_usage WHERE usage_date = ? AND key_id = ?",
+                (today, key_id)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT u.*, k.label, k.provider, k.daily_limit "
+                "FROM llm_daily_usage u "
+                "LEFT JOIN llm_api_keys k ON u.key_id = k.id "
+                "WHERE u.usage_date = ?",
+                (today,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
 def get_total_daily_calls() -> int:
     """Get total LLM calls made today across all keys."""
-    from db import get_db
+    from db import get_db_connection
     today = date.today().isoformat()
-    conn = get_db()
-    row = conn.execute(
-        "SELECT COALESCE(SUM(call_count), 0) as total FROM llm_daily_usage WHERE usage_date = ?",
-        (today,)
-    ).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(call_count), 0) as total FROM llm_daily_usage WHERE usage_date = ?",
+            (today,)
+        ).fetchone()
     return row['total'] if row else 0
 
 
 def is_key_over_daily_limit(key_id: int) -> bool:
     """Check if a specific key has exceeded its daily limit."""
-    from db import get_db
+    from db import get_db_connection
     today = date.today().isoformat()
-    conn = get_db()
-    row = conn.execute(
-        "SELECT u.call_count, k.daily_limit "
-        "FROM llm_api_keys k "
-        "LEFT JOIN llm_daily_usage u ON u.key_id = k.id AND u.usage_date = ? "
-        "WHERE k.id = ?",
-        (today, key_id)
-    ).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT u.call_count, k.daily_limit "
+            "FROM llm_api_keys k "
+            "LEFT JOIN llm_daily_usage u ON u.key_id = k.id AND u.usage_date = ? "
+            "WHERE k.id = ?",
+            (today, key_id)
+        ).fetchone()
     if not row:
         return False
     calls = row['call_count'] or 0

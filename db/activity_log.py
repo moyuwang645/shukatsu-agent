@@ -13,7 +13,7 @@ Usage:
 """
 import json
 import logging
-from db import get_db, get_db_connection
+from db import get_db, get_db_connection, get_db_read
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def log_activity(category: str, message: str, level: str = 'info',
 def get_activity_log(category: str = None, level: str = None,
                      limit: int = 50, offset: int = 0) -> list[dict]:
     """Get activity log entries, optionally filtered."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         query = "SELECT * FROM activity_log WHERE 1=1"
         params = []
 
@@ -96,7 +96,7 @@ def get_activity_log(category: str = None, level: str = None,
 
 def get_activity_stats() -> dict:
     """Get today's activity summary."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         stats = {}
 
         # Counts by category today

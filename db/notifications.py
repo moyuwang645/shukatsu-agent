@@ -1,5 +1,5 @@
 """Notification CRUD operations."""
-from . import get_db_connection
+from . import get_db_connection, get_db_read
 
 
 def create_notification(ntype, title, message='', link=''):
@@ -12,7 +12,7 @@ def create_notification(ntype, title, message='', link=''):
 
 
 def get_unread_notifications():
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute(
             "SELECT * FROM notifications WHERE is_read = 0 ORDER BY created_at DESC"
         ).fetchall()
@@ -20,7 +20,7 @@ def get_unread_notifications():
 
 
 def get_all_notifications(limit=50):
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute(
             "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?",
             (limit,)

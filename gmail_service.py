@@ -64,70 +64,97 @@ def get_gmail_service():
         return None
 
 
-def fetch_recent_emails(max_results=50):
-    """Fetch recent emails, classify them, and auto-register interviews."""
+def fetch_recent_emails(query: str = 'newer_than:7d', max_results: int = 0):
+    """Fetch emails via Gmail API with query and optional pagination.
+
+    Args:
+        query: Gmail search query (e.g. 'after:2026/02/01', 'newer_than:7d').
+        max_results: Max emails to return. 0 = fetch ALL matching (paginated).
+
+    Returns:
+        List of email dicts in standard format.
+    """
     service = get_gmail_service()
     if not service:
         return []
 
-    # Check if AI parsing is available
-    from ai import is_ai_configured
-    from ai.email_parser import parse_email_with_ai
-    use_ai = is_ai_configured()
-    if use_ai:
-        logger.info("[gmail] AI parsing enabled")
-
     try:
-        results = service.users().messages().list(
-            userId='me',
-            maxResults=max_results,
-            q='newer_than:7d'
-        ).execute()
+        # Collect all message IDs via pagination
+        all_message_ids = []
+        page_token = None
+        # Gmail API maxResults per page is capped at 500
+        page_size = min(max_results, 500) if max_results > 0 else 500
 
-        messages = results.get('messages', [])
+        while True:
+            kwargs = {
+                'userId': 'me',
+                'q': query,
+                'maxResults': page_size,
+            }
+            if page_token:
+                kwargs['pageToken'] = page_token
+
+            results = service.users().messages().list(**kwargs).execute()
+            messages = results.get('messages', [])
+            all_message_ids.extend(msg['id'] for msg in messages)
+
+            # Check if we've reached the limit
+            if max_results > 0 and len(all_message_ids) >= max_results:
+                all_message_ids = all_message_ids[:max_results]
+                break
+
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+
+        logger.info(f"[gmail-api] Found {len(all_message_ids)} messages for query: {query}")
+
+        if not all_message_ids:
+            return []
+
+        # Fetch each message's full content
+        total = len(all_message_ids)
         emails = []
+        errors = 0
 
-        cached = get_cached_emails(limit=500)
-        cached_ids = {e['gmail_id'] for e in cached if e.get('gmail_id')}
+        # Import progress tracker
+        try:
+            from services.gmail_progress import update_progress
+        except ImportError:
+            update_progress = None
 
-        for msg_info in messages:
+        for idx, msg_id in enumerate(all_message_ids, 1):
             try:
-                if msg_info['id'] in cached_ids:
-                    continue
-
                 msg = service.users().messages().get(
                     userId='me',
-                    id=msg_info['id'],
+                    id=msg_id,
                     format='full'
                 ).execute()
 
                 email_data = _parse_email(msg)
                 if email_data:
-                    # AI-enhanced classification
-                    if use_ai:
-                        ai_result = parse_email_with_ai(
-                            email_data.get('subject', ''),
-                            email_data.get('sender', ''),
-                            email_data.get('full_body', '')
-                        )
-                        if ai_result:
-                            email_data['ai_result'] = ai_result
-                            if ai_result.get('is_job_related'):
-                                email_data['is_job_related'] = 1
-                            if ai_result.get('event_type') in ('interview', 'es_deadline', 'webtest', 'seminar'):
-                                email_data['is_interview_invite'] = 1
-
-                    cache_email(email_data)
-
-                    # Auto-detect events
-                    if email_data.get('is_interview_invite'):
-                        if not is_email_processed(email_data['gmail_id']):
-                            auto_register_interview(email_data)
-                            mark_email_processed(email_data['gmail_id'])
-
                     emails.append(email_data)
             except Exception as e:
-                logger.debug(f"Error parsing message {msg_info['id']}: {e}")
+                errors += 1
+                if errors <= 5:
+                    logger.warning(f"[gmail-api] Error parsing message {msg_id}: {e}")
+
+            # Progress logging every 50 messages
+            if idx % 50 == 0 or idx == total:
+                logger.info(
+                    f"[gmail-api] Progress: {idx}/{total} messages "
+                    f"({len(emails)} parsed, {errors} errors)"
+                )
+                # Update frontend progress
+                if update_progress:
+                    update_progress(
+                        stage='downloading',
+                        current=idx, total=total,
+                        message=f'メール取得中: {idx}/{total}件',
+                    )
+
+        logger.info(f"[gmail-api] Done: {len(emails)} emails parsed from {total} messages")
+
 
         return emails
 

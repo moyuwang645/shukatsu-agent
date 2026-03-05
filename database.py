@@ -65,3 +65,11 @@ from db.task_queue import (  # noqa: F401
     get_queue as get_task_queue,
     get_queue_stats as get_task_queue_stats,
 )
+
+# Gmail settings
+from db.gmail_settings import (  # noqa: F401
+    get_gmail_config,
+    update_gmail_config,
+    get_last_fetched_at as get_gmail_last_fetched_at,
+    set_last_fetched_at as set_gmail_last_fetched_at,
+)

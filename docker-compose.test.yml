@@ -1,0 +1,27 @@
+# Docker Compose for TESTING — isolated from production
+# Usage:
+#   docker compose -f docker-compose.test.yml up --build
+#   docker compose -f docker-compose.test.yml down -v   (reset all data)
+#
+# Differences from production:
+#   - Port 5050 (not 5000)
+#   - Separate data volume (data-test/) — easy to reset
+#   - Code mounted as volume — changes reflect without rebuild
+#   - Gmail cookie state shared from host
+
+services:
+  shukatsu-test:
+    build: .
+    container_name: shukatsu-test
+    ports:
+      - "5050:5000"
+    volumes:
+      # Mount source code for hot-reload (no rebuild needed)
+      - .:/app
+      # Separate test data directory (delete to reset)
+      - ./data-test:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    restart: "no"

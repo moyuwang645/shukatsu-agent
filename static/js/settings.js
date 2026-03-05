@@ -135,23 +135,294 @@ async function authGmail() {
 }
 
 async function fetchGmail() {
-    showToast('メールを取得中...（就活メールは本文も取得します）', 'info', 8000);
+    const mode = document.getElementById('gmail-fetch-mode')?.value || 'incremental';
+    const btn = document.getElementById('gmail-fetch-btn');
+    const resultEl = document.getElementById('gmail-fetch-result');
+
+    const body = { mode };
+    if (mode === 'keyword_search') {
+        const kw = document.getElementById('gmail-keyword')?.value?.trim();
+        if (!kw) { showToast('キーワードを入力してください', 'error'); return; }
+        body.keyword = kw;
+        body.limit = parseInt(document.getElementById('gmail-keyword-limit')?.value || '10');
+    } else if (mode === 'backfill') {
+        body.days = parseInt(document.getElementById('gmail-backfill-days')?.value || '30');
+    }
+
+    btn.disabled = true;
+    btn.textContent = '🔄 取得中...';
+    resultEl.textContent = '取得中...しばらくお待ちください';
+
+    // Start progress polling
+    startGmailProgressPoll();
+
     try {
-        const res = await fetch('/api/gmail/fetch', { method: 'POST' });
+        const res = await fetch('/api/gmail/fetch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
         const data = await res.json();
+        stopGmailProgressPoll();
         if (res.ok) {
-            let msg = `📧 ${data.count}件のメールを取得しました`;
+            let msg = `📧 ${data.count}件のメールを取得`;
             if (data.events_registered > 0) {
-                msg += ` 🎯 ${data.events_registered}件の予定を自動登録`;
+                msg += ` | 🎯 ${data.events_registered}件の予定を自動登録`;
             }
+            resultEl.textContent = msg;
             showToast(msg, 'success', 5000);
         } else {
+            resultEl.textContent = '❌ ' + (data.error || '取得失敗');
             showToast(data.error || 'メール取得に失敗しました', 'error');
         }
     } catch (err) {
+        stopGmailProgressPoll();
+        resultEl.textContent = '❌ 通信エラー';
         showToast('メール取得に失敗しました', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📧 実行';
     }
 }
+
+// ── Gmail progress polling ──────────────────────────────────────
+let _gmailProgressTimer = null;
+
+function startGmailProgressPoll() {
+    stopGmailProgressPoll();
+    const wrap = document.getElementById('gmail-progress-wrap');
+    if (wrap) wrap.style.display = 'block';
+    _gmailProgressTimer = setInterval(pollGmailProgress, 1000);
+}
+
+function stopGmailProgressPoll() {
+    if (_gmailProgressTimer) {
+        clearInterval(_gmailProgressTimer);
+        _gmailProgressTimer = null;
+    }
+}
+
+async function pollGmailProgress() {
+    try {
+        const res = await fetch('/api/gmail/progress');
+        const p = await res.json();
+
+        const wrap = document.getElementById('gmail-progress-wrap');
+        const bar = document.getElementById('gmail-progress-bar');
+        const text = document.getElementById('gmail-progress-text');
+        const pct = document.getElementById('gmail-progress-pct');
+        if (!wrap) return;
+
+        if (p.active || p.stage === 'done') {
+            wrap.style.display = 'block';
+            text.textContent = p.message || p.stage;
+
+            if (p.total > 0) {
+                const percent = Math.round((p.current / p.total) * 100);
+                bar.style.width = percent + '%';
+                pct.textContent = percent + '%';
+            } else {
+                bar.style.width = '100%';
+                pct.textContent = '';
+            }
+
+            if (!p.active) {
+                // Done — show for 5s then hide
+                setTimeout(() => {
+                    wrap.style.display = 'none';
+                    bar.style.width = '0%';
+                }, 5000);
+                stopGmailProgressPoll();
+            }
+        } else {
+            wrap.style.display = 'none';
+        }
+    } catch (e) { /* ignore polling errors */ }
+}
+
+// Check if a background fetch is already running on page load
+function checkGmailProgress() {
+    fetch('/api/gmail/progress')
+        .then(r => r.json())
+        .then(p => {
+            if (p.active) startGmailProgressPoll();
+        })
+        .catch(() => { });
+}
+
+
+const GMAIL_MODE_DESCS = {
+    incremental: '前回取得以降の新着メールを自動取得します。',
+    backfill: '指定日数分の全メールを取得します（初回または再取得用）。',
+    keyword_search: '指定キーワードに一致するメールを検索して取得します。',
+};
+
+function onGmailModeChange() {
+    const mode = document.getElementById('gmail-fetch-mode').value;
+    document.getElementById('gmail-keyword').style.display = mode === 'keyword_search' ? '' : 'none';
+    document.getElementById('gmail-limit-wrap').style.display = mode === 'keyword_search' ? 'flex' : 'none';
+    document.getElementById('gmail-days-wrap').style.display = mode === 'backfill' ? 'flex' : 'none';
+    document.getElementById('gmail-mode-desc').textContent = GMAIL_MODE_DESCS[mode] || '';
+}
+
+function toggleGmailSettings() {
+    const panel = document.getElementById('gmail-settings-panel');
+    const chevron = document.getElementById('gmail-settings-chevron');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        chevron.textContent = '▲';
+        loadGmailSettings();
+    } else {
+        panel.style.display = 'none';
+        chevron.textContent = '▼';
+    }
+}
+
+async function loadGmailSettings() {
+    try {
+        const res = await fetch('/api/gmail/settings');
+        const cfg = await res.json();
+        const daysEl = document.getElementById('gmail-cfg-backfill-days');
+        const limitEl = document.getElementById('gmail-cfg-keyword-limit');
+        const lastEl = document.getElementById('gmail-cfg-last-fetched');
+        if (daysEl) daysEl.value = cfg.gmail_backfill_days || 30;
+        if (limitEl) limitEl.value = cfg.gmail_keyword_limit || 10;
+        if (lastEl) lastEl.textContent = cfg.gmail_last_fetched_at || '未取得';
+        // Also sync the fetch form defaults
+        const formLimit = document.getElementById('gmail-keyword-limit');
+        if (formLimit) formLimit.value = cfg.gmail_keyword_limit || 10;
+        const formDays = document.getElementById('gmail-backfill-days');
+        if (formDays) formDays.value = cfg.gmail_backfill_days || 30;
+    } catch (e) { /* ignore */ }
+}
+
+async function saveGmailSettings() {
+    const resultEl = document.getElementById('gmail-settings-result');
+    resultEl.textContent = '保存中...';
+    const body = {
+        gmail_backfill_days: document.getElementById('gmail-cfg-backfill-days')?.value || '30',
+        gmail_keyword_limit: document.getElementById('gmail-cfg-keyword-limit')?.value || '10',
+    };
+    try {
+        const res = await fetch('/api/gmail/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (res.ok) {
+            resultEl.textContent = '✅ 保存完了';
+            showToast('Gmail設定を保存しました', 'success');
+        } else {
+            resultEl.textContent = '❌ エラー';
+        }
+    } catch (e) {
+        resultEl.textContent = '❌ 通信エラー';
+    }
+}
+
+
+// ── Sender Blocklist ────────────────────────────────────────
+function toggleBlocklist() {
+    const panel = document.getElementById('blocklist-panel');
+    const chevron = document.getElementById('blocklist-chevron');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        chevron.textContent = '▲';
+        loadBlocklistRules();
+    } else {
+        panel.style.display = 'none';
+        chevron.textContent = '▼';
+    }
+}
+
+async function loadBlocklistRules() {
+    try {
+        const res = await fetch('/api/llm/filters');
+        const rules = await res.json();
+        const container = document.getElementById('blocklist-rules');
+        if (!container) return;
+
+        if (!rules.length) {
+            container.innerHTML = '<p style="font-size:0.8em; color:var(--text-secondary);">ブロックルールなし</p>';
+            return;
+        }
+
+        container.innerHTML = rules.map(r => `
+            <div style="display:flex; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.8em;">
+                <span style="cursor:pointer; opacity:${r.enabled ? 1 : 0.4};" onclick="toggleBlockRule(${r.id})"
+                    title="${r.enabled ? '有効' : '無効'}">${r.enabled ? '✅' : '⬜'}</span>
+                <span style="color:var(--accent-primary); min-width:40px;">${r.rule_type === 'sender' ? '送信者' : '件名'}</span>
+                <code style="flex:1; font-size:0.85em; opacity:${r.enabled ? 1 : 0.5};">${escapeHtml(r.pattern)}</code>
+                <span style="color:var(--text-secondary); font-size:0.85em; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(r.description || '')}</span>
+                <button class="btn btn-outline btn-sm" style="font-size:0.65em; padding:1px 6px; color:var(--danger);"
+                    onclick="deleteBlockRule(${r.id})">✕</button>
+            </div>
+        `).join('');
+    } catch (e) { /* ignore */ }
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function addBlocklistRule() {
+    const type = document.getElementById('blocklist-type').value;
+    const pattern = document.getElementById('blocklist-pattern').value.trim();
+    const desc = document.getElementById('blocklist-desc').value.trim();
+    if (!pattern) { showToast('パターンを入力してください', 'error'); return; }
+
+    try {
+        const res = await fetch('/api/llm/filters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule_type: type, pattern, description: desc }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById('blocklist-pattern').value = '';
+            document.getElementById('blocklist-desc').value = '';
+            showToast('ブロックルールを追加しました', 'success');
+            loadBlocklistRules();
+        } else {
+            showToast(data.error || 'エラー', 'error');
+        }
+    } catch (e) { showToast('通信エラー', 'error'); }
+}
+
+async function addPresetBlock(pattern, desc) {
+    try {
+        const res = await fetch('/api/llm/filters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule_type: 'sender', pattern, description: desc }),
+        });
+        if (res.ok) {
+            showToast(`${desc} を追加しました`, 'success');
+            loadBlocklistRules();
+            // Open panel if closed
+            const panel = document.getElementById('blocklist-panel');
+            if (panel && panel.style.display === 'none') toggleBlocklist();
+        } else {
+            const data = await res.json();
+            showToast(data.error || 'エラー', 'error');
+        }
+    } catch (e) { showToast('通信エラー', 'error'); }
+}
+
+async function deleteBlockRule(ruleId) {
+    try {
+        await fetch(`/api/llm/filters/${ruleId}`, { method: 'DELETE' });
+        loadBlocklistRules();
+    } catch (e) { /* ignore */ }
+}
+
+async function toggleBlockRule(ruleId) {
+    try {
+        await fetch(`/api/llm/filters/${ruleId}/toggle`, { method: 'POST' });
+        loadBlocklistRules();
+    } catch (e) { /* ignore */ }
+}
+
 
 const SITE_NAMES = {
     mynavi: 'マイナビ',
@@ -591,4 +862,6 @@ async function restartWorker() {
 document.addEventListener('DOMContentLoaded', function () {
     loadDBConfig();
     loadWorkerSettings();
+    loadGmailSettings();
+    checkGmailProgress();
 });

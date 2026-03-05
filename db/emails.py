@@ -1,6 +1,6 @@
 """Email cache CRUD operations."""
 import logging
-from . import get_db, get_db_connection
+from . import get_db_connection, get_db_read
 
 logger = logging.getLogger(__name__)
 
@@ -28,38 +28,34 @@ def cache_email(data):
 
 
 def get_cached_emails(job_related_only=False, limit=100):
-    conn = get_db()
-    query = "SELECT * FROM email_cache"
-    if job_related_only:
-        query += " WHERE is_job_related = 1"
-    query += " ORDER BY received_at DESC LIMIT ?"
-    rows = conn.execute(query, (limit,)).fetchall()
-    conn.close()
+    with get_db_read() as conn:
+        query = "SELECT * FROM email_cache"
+        if job_related_only:
+            query += " WHERE is_job_related = 1"
+        query += " ORDER BY received_at DESC LIMIT ?"
+        rows = conn.execute(query, (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
 def mark_email_processed(gmail_id):
     """Mark an email as processed (event extraction done)."""
-    conn = get_db()
-    conn.execute("UPDATE email_cache SET processed = 1 WHERE gmail_id = ?", (gmail_id,))
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute("UPDATE email_cache SET processed = 1 WHERE gmail_id = ?", (gmail_id,))
+        conn.commit()
 
 
 def is_email_processed(gmail_id):
     """Check if an email has already been processed for event extraction."""
-    conn = get_db()
-    row = conn.execute(
-        "SELECT processed FROM email_cache WHERE gmail_id = ? AND processed = 1",
-        (gmail_id,)
-    ).fetchone()
-    conn.close()
+    with get_db_read() as conn:
+        row = conn.execute(
+            "SELECT processed FROM email_cache WHERE gmail_id = ? AND processed = 1",
+            (gmail_id,)
+        ).fetchone()
     return row is not None
 
 
 def get_email_count():
     """Return the total number of cached emails (used for first-run detection)."""
-    conn = get_db()
-    row = conn.execute("SELECT COUNT(*) FROM email_cache").fetchone()
-    conn.close()
+    with get_db_read() as conn:
+        row = conn.execute("SELECT COUNT(*) FROM email_cache").fetchone()
     return row[0] if row else 0

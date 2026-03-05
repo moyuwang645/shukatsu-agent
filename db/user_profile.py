@@ -1,6 +1,6 @@
 """User profile CRUD — stores personal info extracted from ES for auto-filling MyPage forms."""
 import json
-from . import get_db
+from . import get_db_connection, get_db_read
 
 
 def save_user_profile(profile_data: dict) -> int:
@@ -11,34 +11,30 @@ def save_user_profile(profile_data: dict) -> int:
         name, name_kana, email, phone, postcode, address,
         university, faculty, department, graduation_year, graduation_month
     """
-    conn = get_db()
-    cursor = conn.cursor()
     profile_json = json.dumps(profile_data, ensure_ascii=False)
-
-    existing = cursor.execute("SELECT id FROM user_profile LIMIT 1").fetchone()
-    if existing:
-        cursor.execute('''
-            UPDATE user_profile
-            SET profile_data = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (profile_json, existing['id']))
-        pid = existing['id']
-    else:
-        cursor.execute('''
-            INSERT INTO user_profile (profile_data) VALUES (?)
-        ''', (profile_json,))
-        pid = cursor.lastrowid
-
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        existing = cursor.execute("SELECT id FROM user_profile LIMIT 1").fetchone()
+        if existing:
+            cursor.execute('''
+                UPDATE user_profile
+                SET profile_data = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (profile_json, existing['id']))
+            pid = existing['id']
+        else:
+            cursor.execute('''
+                INSERT INTO user_profile (profile_data) VALUES (?)
+            ''', (profile_json,))
+            pid = cursor.lastrowid
+        conn.commit()
     return pid
 
 
 def get_user_profile() -> dict | None:
     """Get the stored user profile as a dict."""
-    conn = get_db()
-    row = conn.execute("SELECT * FROM user_profile LIMIT 1").fetchone()
-    conn.close()
+    with get_db_read() as conn:
+        row = conn.execute("SELECT * FROM user_profile LIMIT 1").fetchone()
     if not row:
         return None
     result = dict(row)
@@ -60,30 +56,28 @@ def get_profile_field(field_name: str, default='') -> str:
 
 def save_mypage_password(password: str):
     """Save the unified MyPage password to user settings."""
-    conn = get_db()
-    cursor = conn.cursor()
-    existing = cursor.execute(
-        "SELECT id FROM user_settings WHERE key = 'mypage_password'"
-    ).fetchone()
-    if existing:
-        cursor.execute(
-            "UPDATE user_settings SET value = ? WHERE key = 'mypage_password'",
-            (password,)
-        )
-    else:
-        cursor.execute(
-            "INSERT INTO user_settings (key, value) VALUES ('mypage_password', ?)",
-            (password,)
-        )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        existing = cursor.execute(
+            "SELECT id FROM user_settings WHERE key = 'mypage_password'"
+        ).fetchone()
+        if existing:
+            cursor.execute(
+                "UPDATE user_settings SET value = ? WHERE key = 'mypage_password'",
+                (password,)
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO user_settings (key, value) VALUES ('mypage_password', ?)",
+                (password,)
+            )
+        conn.commit()
 
 
 def get_mypage_password() -> str:
     """Get the unified MyPage password."""
-    conn = get_db()
-    row = conn.execute(
-        "SELECT value FROM user_settings WHERE key = 'mypage_password'"
-    ).fetchone()
-    conn.close()
+    with get_db_read() as conn:
+        row = conn.execute(
+            "SELECT value FROM user_settings WHERE key = 'mypage_password'"
+        ).fetchone()
     return row['value'] if row else ''

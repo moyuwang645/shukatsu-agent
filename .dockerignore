@@ -13,7 +13,12 @@ env/
 
 # Data (mounted as volume instead)
 data/
+data-test/
 *.db
+
+# Agent config
+.agent/
+
 
 # Environment secrets
 .env

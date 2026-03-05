@@ -191,15 +191,14 @@ def api_stop_worker():
 def api_worker_settings():
     """Get or update TaskWorker concurrency settings."""
     from services.task_worker import SETTINGS_KEY, DEFAULT_MAX_WORKERS
-    from db import get_db
+    from db import get_db_connection
 
     if request.method == 'GET':
-        conn = get_db()
-        row = conn.execute(
-            "SELECT value FROM user_settings WHERE key = ?",
-            (SETTINGS_KEY,)
-        ).fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM user_settings WHERE key = ?",
+                (SETTINGS_KEY,)
+            ).fetchone()
         current = int(row[0]) if row and row[0] else DEFAULT_MAX_WORKERS
         return jsonify({
             'max_workers': current,
@@ -217,23 +216,22 @@ def api_worker_settings():
         return jsonify({'error': 'max_workers required'}), 400
     val = max(1, min(int(val), 10))
 
-    conn = get_db()
-    existing = conn.execute(
-        "SELECT id FROM user_settings WHERE key = ?",
-        (SETTINGS_KEY,)
-    ).fetchone()
-    if existing:
-        conn.execute(
-            "UPDATE user_settings SET value = ? WHERE key = ?",
-            (str(val), SETTINGS_KEY)
-        )
-    else:
-        conn.execute(
-            "INSERT INTO user_settings (key, value) VALUES (?, ?)",
-            (SETTINGS_KEY, str(val))
-        )
-    conn.commit()
-    conn.close()
+    with get_db_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM user_settings WHERE key = ?",
+            (SETTINGS_KEY,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE user_settings SET value = ? WHERE key = ?",
+                (str(val), SETTINGS_KEY)
+            )
+        else:
+            conn.execute(
+                "INSERT INTO user_settings (key, value) VALUES (?, ?)",
+                (SETTINGS_KEY, str(val))
+            )
+        conn.commit()
 
     logger.info(f"[scheduler_api] TaskWorker max_workers updated to {val}")
     return jsonify({

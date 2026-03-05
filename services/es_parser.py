@@ -1,7 +1,7 @@
 """ES (Entry Sheet) file parser — extract and structure text from uploaded files.
 
 Supports:
-- PDF  → pdfplumber
+- PDF  → PyMuPDF (fitz)
 - DOCX → python-docx
 - Images (JPG/PNG) → Gemini Vision API for OCR
 
@@ -19,14 +19,19 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 def _extract_pdf(file_path: str) -> str:
-    """Extract text from a PDF file using pdfplumber."""
-    import pdfplumber
+    """Extract text from a PDF file using PyMuPDF (fitz).
+
+    Switched from pdfplumber to PyMuPDF because pdfplumber hangs
+    on certain OpenES resume PDFs.
+    """
+    import fitz
     texts = []
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                texts.append(text)
+    pdf = fitz.open(file_path)
+    for page in pdf:
+        text = page.get_text()
+        if text and text.strip():
+            texts.append(text)
+    pdf.close()
     result = '\n'.join(texts)
     logger.info(f"[es_parser] PDF extracted: {len(result)} chars from {len(texts)} pages")
     return result
@@ -207,14 +212,38 @@ def structure_text(raw_text: str) -> dict:
 # ──────────────────────────────────────────────
 
 def parse_es_file(file_path: str) -> dict:
-    """Parse an ES file end-to-end: extract text → structure with AI.
+    """Parse an ES file end-to-end.
+
+    If the file is an OpenES resume, uses coordinate-based parsing.
+    Otherwise, extracts text and structures with AI.
 
     Args:
         file_path: Absolute path to the uploaded file.
 
     Returns:
-        dict with keys: raw_text, self_pr, motivation, strengths, experience
+        dict with parsed fields.
     """
+    ext = os.path.splitext(file_path)[1].lower()
+
+    # Check if this is a resume PDF (OpenES format)
+    if ext == '.pdf':
+        from services.resume_parser import is_resume_pdf
+        if is_resume_pdf(file_path):
+            logger.info(f"[es_parser] Detected OpenES resume, using resume_parser")
+            from services.resume_parser import parse_resume
+            resume_data = parse_resume(file_path)
+            # Return in a format compatible with the existing ES pipeline
+            raw_text = extract_text(file_path)
+            return {
+                'raw_text': raw_text,
+                'self_pr': resume_data.get('self_pr', ''),
+                'motivation': '',
+                'strengths': [],
+                'experience': resume_data.get('academic_work', ''),
+                'is_resume': True,
+                'resume_data': resume_data,
+            }
+
     raw_text = extract_text(file_path)
     if not raw_text:
         logger.warning(f"[es_parser] No text extracted from {file_path}")
@@ -228,7 +257,7 @@ def parse_es_file(file_path: str) -> dict:
     return structured
 
 
-def save_es_to_db(file_path: str, title: str, parsed_data: dict) -> int:
+def save_es_to_db(file_path: str, title: str, parsed_data: dict, photo_path: str = '') -> int:
     """Save parsed ES data to the database.
 
     Returns the document ID.
@@ -238,9 +267,11 @@ def save_es_to_db(file_path: str, title: str, parsed_data: dict) -> int:
     ext = os.path.splitext(file_path)[1].lower().lstrip('.')
     doc_id = create_es_document({
         'title': title,
+        'file_path': file_path,
         'file_type': ext,
         'raw_text': parsed_data.get('raw_text', ''),
         'parsed_data': json.dumps(parsed_data, ensure_ascii=False),
+        'photo_path': photo_path,
     })
     logger.info(f"[es_parser] Saved to DB: id={doc_id}, title={title}")
     return doc_id

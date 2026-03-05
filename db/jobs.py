@@ -1,7 +1,7 @@
 """Job CRUD operations."""
 import logging
 from datetime import datetime
-from . import get_db_connection
+from . import get_db_connection, get_db_read
 
 logger = logging.getLogger(__name__)
 
@@ -131,13 +131,13 @@ def delete_all_jobs():
 
 
 def get_job(job_id):
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
 
 
 def get_all_jobs(status=None, source=None):
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         query = "SELECT * FROM jobs WHERE 1=1"
         params = []
         if status:
@@ -153,7 +153,7 @@ def get_all_jobs(status=None, source=None):
 
 def get_jobs_by_deadline(date_str):
     """Get jobs with deadline on a specific date."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute(
             "SELECT * FROM jobs WHERE deadline = ? AND status NOT IN ('rejected', 'withdrawn')",
             (date_str,)
@@ -163,7 +163,7 @@ def get_jobs_by_deadline(date_str):
 
 def get_upcoming_deadlines(days=7):
     """Get jobs with deadlines in the next N days."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute('''
             SELECT * FROM jobs
             WHERE deadline IS NOT NULL
@@ -177,7 +177,7 @@ def get_upcoming_deadlines(days=7):
 
 def get_honsen_urgent_deadlines(days=3):
     """Get jobs in active selection with deadlines within the next N days."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute('''
             SELECT * FROM jobs
             WHERE deadline IS NOT NULL
@@ -237,7 +237,7 @@ def upsert_job_from_scraper(data):
 
 def get_job_stats():
     """Get job counts grouped by status (dynamic — no hardcoded status list)."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute(
             "SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status"
         ).fetchall()
@@ -250,7 +250,7 @@ def job_exists_by_source_id(source_id: str) -> bool:
     """Return True if a job with this source_id already exists."""
     if not source_id:
         return False
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         row = conn.execute(
             "SELECT id FROM jobs WHERE source_id = ?", (source_id,)
         ).fetchone()
@@ -264,7 +264,7 @@ def get_job_by_source_id(source_id: str, source: str = '') -> dict | None:
     """
     if not source_id:
         return None
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         if source:
             row = conn.execute(
                 "SELECT * FROM jobs WHERE source_id = ? AND source = ?",
@@ -279,7 +279,7 @@ def get_job_by_source_id(source_id: str, source: str = '') -> dict | None:
 
 def get_unenriched_jobs(limit: int = 10) -> list:
     """Return jobs that have not yet been AI-enriched (ai_enriched = 0 or NULL)."""
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         rows = conn.execute(
             '''SELECT * FROM jobs
                WHERE (ai_enriched IS NULL OR ai_enriched = 0)

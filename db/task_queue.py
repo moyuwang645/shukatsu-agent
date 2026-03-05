@@ -82,25 +82,30 @@ def claim_next() -> dict | None:
     """Atomically claim the highest-priority pending task.
 
     Returns the task dict, or None if no tasks available.
-    Uses DBWriter serialization — no explicit locking needed.
+    Uses BEGIN EXCLUSIVE to prevent race conditions.
     """
-    with get_db_connection() as conn:
+    conn = get_db()
+    try:
+        # Exclusive lock prevents other connections from reading/writing
+        conn.execute("BEGIN IMMEDIATE")
+
         row = conn.execute(
             "SELECT * FROM task_queue WHERE status = 'pending' "
             "ORDER BY priority ASC, created_at ASC LIMIT 1"
         ).fetchone()
 
         if not row:
+            conn.execute("COMMIT")
             return None
 
-        # Mark as running (safe — DBWriter lock prevents race conditions)
+        # Mark as running within the exclusive transaction
         conn.execute(
             "UPDATE task_queue SET status = 'running', "
             "started_at = datetime('now', 'localtime') "
             "WHERE id = ?",
             (row['id'],)
         )
-        conn.commit()
+        conn.execute("COMMIT")
 
         task = dict(row)
         task['status'] = 'running'
@@ -111,6 +116,14 @@ def claim_next() -> dict | None:
 
         logger.info(f"[task_queue] Claimed: {task['task_type']} (id={task['id']})")
         return task
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
 
 
 def complete(task_id: int, result: dict = None):

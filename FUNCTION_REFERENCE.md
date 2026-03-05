@@ -1,5 +1,5 @@
 # 就活エージェント 全関数リファレンス
-# 最終更新: 2026-02-27
+# 最終更新: 2026-03-01
 
 ---
 
@@ -73,6 +73,13 @@
 |------|--------------|------|
 | generate_custom_es(base_es, job_data, openwork_data=None) | → dict{custom_self_pr, custom_motivation}\|None | 企業別ES生成 |
 
+## ai/ai_merge.py
+| クラス/関数 | 引数 → 戻り値 | 用途 |
+|------|--------------|------|
+| MergeMode | AI / DIRECT / AUTO | マージモード定数 |
+| ai_merge(existing, new_data, data_source, mode, prompt_key, constraints) | → dict | 統一データマージ（ルールベース or LLM） |
+| DEFAULT_CONSTRAINTS | dict | フィールド別制約（locked/write_once/updatable/ai_only） |
+
 ---
 
 ## db/__init__.py
@@ -82,6 +89,15 @@
 | get_db_connection(max_retries=3) | → context manager | DBWriter経由の安全な接続 |
 | DBWriter | (class) | 単一接続シリアライズ書込み |
 | init_db() | → None | 全テーブル初期化 |
+
+## db/models.py
+| クラス | 用途 |
+|------|------|
+| JobRecord (TypedDict) | 求人レコード型定義（24フィールド） |
+| InterviewRecord (TypedDict) | 面接レコード型定義 |
+| TaskRecord (TypedDict) | タスクキューレコード型定義 |
+| JobStatus (Literal) | 15種ステータス列挙 |
+| JobSource (Literal) | 7種ソース列挙 |
 
 ## db/jobs.py
 | 関数 | 引数 → 戻り値 | 用途 |
@@ -198,7 +214,25 @@
 ### gmail_dispatcher.py
 | 関数 | 引数 → 戻り値 | 用途 |
 |------|--------------|------|
-| fetch_emails(backfill=False, max_results=20, apply_filter=True) | → dict | 統一取得（browser/API自動選択 + cache + filter + AI処理） |
+| fetch_emails(mode='incremental', params=None, apply_filter=True) | → dict | モード駆動統一取得（registry経由） |
+
+### gmail_modes.py
+| クラス/関数 | 用途 |
+|------|------|
+| FetchMode (ABC) | 取得モード基底クラス（build_query, get_limit, after_fetch） |
+| GmailModeRegistry | モード登録・検索（register, get, list_modes） |
+| BackfillMode | 初回全量取得（past N days, 上限なし） |
+| IncrementalMode | 日常増分（since last_fetched_at, 上限なし） |
+| KeywordSearchMode | キーワード検索（limit付き） |
+| registry | グローバルレジストリインスタンス |
+
+### db/gmail_settings.py
+| 関数 | 引数 → 戻り値 | 用途 |
+|------|--------------|------|
+| get_gmail_config() | → dict | 全gmail_*設定を取得 |
+| update_gmail_config(updates) | → None | 設定を更新 |
+| get_last_fetched_at() | → str | 最終取得時刻 |
+| set_last_fetched_at(ts) | → None | 最終取得時刻を記録 |
 
 ### email_backfill.py
 | 関数 | 引数 → 戻り値 | 用途 |
@@ -228,6 +262,12 @@
 | normalize(name) | → str | 会社名正規化（株式会社除去, NFKC, 全角→半角） |
 | find_matching_job(company_name, exclude_id=None) | → dict\|None | クロスソースマッチ |
 
+### company_matcher.py
+| 関数/クラス | 引数 → 戻り値 | 用途 |
+|------|--------------|------|
+| MatchResult | dataclass(job, score, method) | マッチ結果 |
+| find_best_match(company_name, jobs, url, exclude_ids, min_score) | → MatchResult\|None | 4戦略スコアベースマッチング |
+
 ### sse_hub.py
 | 関数 | 引数 → 戻り値 | 用途 |
 |------|--------------|------|
@@ -248,10 +288,29 @@
 scrape_\<site\>, enrich, email_check, keyword_search, email_backfill,
 application_queue, check_deadlines, check_interviews, cleanup_old_tasks
 
-### es_parser.py / profile_extractor.py / strict_es_generator.py
+### es_parser.py
 | ファイル | 関数 | 用途 |
 |---------|------|------|
-| es_parser | parse_es_file(path) → dict | PDF/DOCX→AI構造化 |
+| es_parser | parse_es_file(path) → dict | PDF/DOCX→AI構造化（履歴書自動判定） |
+| es_parser | extract_text(path) → str | PyMuPDFでテキスト抽出 |
+| es_parser | save_es_to_db(path, title, parsed, photo_path) → int | DB保存 |
+
+### resume_parser.py
+| 関数 | 引数 → 戻り値 | 用途 |
+|------|--------------|------|
+| parse_resume(file_path) | → dict | OpenES座標ベース全フィールド抽出 |
+| is_resume_pdf(file_path) | → bool | 履歴書判定（マーカーテキスト検出） |
+
+### detail_enrich_service.py
+| 関数 | 引数 → 戻り値 | 用途 |
+|------|--------------|------|
+| enrich_job_detail(job_id) | → dict | 求人詳細ページ取得+AI解析 |
+
+サイト別URL戦略: mynavi(2ページ), career_tasu(2), onecareer(2), engineer_shukatu(3), gaishishukatsu(1)
+
+### profile_extractor.py / strict_es_generator.py
+| ファイル | 関数 | 用途 |
+|---------|------|------|
 | profile_extractor | extract_and_save_profile(text) → dict | ES→プロフィール |
 | strict_es_generator | generate_strict_es(question, max_chars, ...) → dict | 文字数厳密ES |
 

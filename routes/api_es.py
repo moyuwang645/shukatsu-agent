@@ -27,16 +27,64 @@ def upload_es():
     from services.es_parser import parse_es_file, save_es_to_db
     parsed = parse_es_file(file_path)
     title = request.form.get('title', file.filename)
-    doc_id = save_es_to_db(file_path, title, parsed)
 
-    return jsonify({
+    # If this is a resume, include photo_path in the document
+    photo_path = ''
+    if parsed.get('is_resume') and parsed.get('resume_data'):
+        photo_path = parsed['resume_data'].get('photo_path', '')
+        # Auto-save to user profile
+        try:
+            from db.user_profile import save_user_profile
+            rd = parsed['resume_data']
+            save_user_profile({
+                'name': rd.get('name', ''),
+                'name_kana': rd.get('name_kana', ''),
+                'email': rd.get('email', ''),
+                'phone': rd.get('phone', ''),
+                'postcode': rd.get('postcode', ''),
+                'address': rd.get('address', ''),
+                'birthday': rd.get('birthday', ''),
+                'photo_path': photo_path,
+                'education': rd.get('education', []),
+                'qualifications': rd.get('qualifications', ''),
+            })
+        except Exception:
+            pass  # Non-critical
+
+    doc_id = save_es_to_db(file_path, title, parsed, photo_path=photo_path)
+
+    result = {
         'id': doc_id,
         'title': title,
         'self_pr': parsed.get('self_pr', '')[:200],
         'motivation': parsed.get('motivation', '')[:200],
         'strengths': parsed.get('strengths', []),
-        'message': 'ES parsed and saved.'
-    })
+        'message': 'ES parsed and saved.',
+        'is_resume': parsed.get('is_resume', False),
+    }
+    if parsed.get('resume_data'):
+        rd = parsed['resume_data']
+        result['resume'] = {
+            'name': rd.get('name', ''),
+            'email': rd.get('email', ''),
+            'phone': rd.get('phone', ''),
+            'has_photo': bool(photo_path),
+        }
+    return jsonify(result)
+
+
+@es_bp.route('/api/es/<int:doc_id>/photo')
+def get_es_photo(doc_id):
+    """Serve the extracted resume photo."""
+    from flask import send_file
+    from db.es import get_es_document
+    doc = get_es_document(doc_id)
+    if not doc or not doc.get('photo_path'):
+        return jsonify({'error': 'No photo'}), 404
+    photo_path = doc['photo_path']
+    if not os.path.exists(photo_path):
+        return jsonify({'error': 'Photo file not found'}), 404
+    return send_file(photo_path, mimetype='image/jpeg')
 
 
 @es_bp.route('/api/es/list')

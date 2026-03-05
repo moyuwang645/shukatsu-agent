@@ -321,3 +321,74 @@ SCRAPE_MODES = {
   - db/jobs.py に delete_all_jobs(), get_job_by_source_id() 追加
 - **`README.md` 更新**: 現在の機能セットを反映（5サイト対応、AIマルチプロバイダー、SSEリアルタイム更新、タスクキュー、Gmail dispatcher等）
 
+## 2026-02-28: アーキテクチャ改善 + Docker DB統一迁移
+
+### アーキテクチャ改善
+- **`services/company_matcher.py` 新規作成**: `find_best_match()` — 3箇所に散在していたマッチングロジックを4戦略スコアベース（exact:100, normalized:95, domain:90, substring:75）の単一関数に統合。
+- **`db/models.py` 新規作成**: `JobRecord`, `InterviewRecord`, `TaskRecord` の TypedDict 定義。IDE補完とリファクタリング支援用。`JobStatus`(15種), `JobSource`(7種) の Literal 型も定義。
+- **`services/email_backfill.py` リファクタ**: `_merge_backfill_results` を `scrapers/__init__.py` から分離。`event_detector.py` の重複ユーティリティ関数も削除（-14%）。
+
+### Docker DB統一迁移
+- **全DB モジュールの `get_db()` → `get_db_connection()` 統一**: Docker環境下で独立接続がDBWriter のWALロックと競合し API 500エラーが発生する問題を修正。
+- 対象: `db/mypages.py`(7箇所), `db/llm_settings.py`(15箇所), `db/applications.py`(10箇所), `db/interviews.py`(6箇所), `db/openwork.py`(5箇所), `db/es.py`(5箇所), `db/user_profile.py`(4箇所), `db/emails.py`(3箇所), `db/chat.py`(4箇所) — 計~59箇所。
+- `init_llm_tables()` のみ `get_db()` を維持（DBWriter初期化前に実行されるため）。
+
+## 2026-02-28 ~ 2026-03-01: 履歴書PDFパーサー実装
+
+- **`services/resume_parser.py` 新規作成** (272行): OpenES形式の履歴書PDFを座標ベースで全フィールド解析（AI不要）。
+  - PyMuPDF (fitz) でテキストブロック座標取得 → Y座標でフィールドマッピング
+  - 証明写真自動抽出（height > width の画像を `data/uploads/photos/` に保存）
+  - 出力: name, name_kana, birthday, phone, email, address, education[], qualifications, hobbies, academic_work, self_pr, gakuchika, photo_path, date
+- **`services/es_parser.py` 改修**: PDF抽出を pdfplumber → PyMuPDF (fitz) に変更。`is_resume_pdf()` による自動判定で履歴書PDFは `resume_parser` にディスパッチ。
+- **`routes/api_es.py` 拡張**: 履歴書アップロード時のプロフィール自動保存、`GET /api/es/<id>/photo` 写真エンドポイント、`POST /api/es/generate` 企業カスタムES生成。
+- **`db/es.py` + `db/__init__.py`**: `es_documents` テーブルに `photo_path TEXT DEFAULT ''` カラム追加（CREATE TABLE + safe ALTER migration）。
+- **`templates/es_management.html` 拡張**: 履歴書詳細表示（証明写真 + 全個人情報 + 学歴 + 資格 + 自己PR + 学チカ）。
+- **`requirements.txt` 修正**: PyMuPDF>=1.24.0 追加（ヌルバイト破損も修正）。
+
+## 2026-03-01: ドキュメント同期
+- **`ARCHITECTURE.md` 更新**: 7つの新規ファイルをツリーに追加（ai_merge.py, models.py, company_matcher.py, resume_parser.py, detail_enrich_service.py + 4 prompt files）。`es_documents` スキーマ更新（photo_path）、3つの新APIエンドポイント追加、3つの新設計パターン追記（ai_merge, company_matcher, resume_parser）、技術スタックにPyMuPDF追加。
+- **`FUNCTION_REFERENCE.md` 更新**: ai_merge.py, db/models.py, company_matcher.py, resume_parser.py, detail_enrich_service.py の関数リファレンス追加。es_parser.py のエントリ更新（PyMuPDF + 履歴書ディスパッチ対応）。
+
+
+## 2026-03-02: DB読み書きパス分離
+
+### 問題
+Docker環境下でアプリがロック状態になる問題。原因: 全DBアクセス（読み書き両方）が `get_db_connection()` → `DBWriter` の単一 `threading.Lock()` を通過しており、SQLite WALモードの並行読みが無効化されていた。
+
+### 変更内容
+- **`db/__init__.py`**: 新規 `get_db_read()` コンテキストマネージャ追加 — 独立接続で読み取り、DBWriter ロック不要。
+- **全15 DBモジュールの純読み関数を `get_db_read()` に移行** (計~53関数):
+  - `jobs.py`(9), `llm_settings.py`(9), `applications.py`(6), `task_queue.py`(4), `interviews.py`(3), `emails.py`(3), `openwork.py`(3), `mypages.py`(3), `notifications.py`(2), `preferences.py`(2), `es.py`(2), `activity_log.py`(2), `user_profile.py`(2), `chat.py`(2), `gmail_settings.py`(1)
+- 書き込み操作・混合操作（`claim_next()` 等）は `get_db_connection()` を維持。
+
+### 設計原則
+- **書き込み** → `get_db_connection()` → DBWriter (`threading.Lock()` で直列化)
+- **純読み取り** → `get_db_read()` → 独立接続 (WAL並行読み、ロック不要)
+- **読み→書きアトミック操作** → `get_db_connection()` (競合防止)
+
+## 2026-03-01 ~ 2026-03-02: MyPage自動化パイプライン Phase 1-2
+
+### Phase 1: メールからの認証情報自動抽出 ✅
+- **`ai/email_parser.py` 拡張**: AI解析出力に `mypage_url`, `mypage_username`, `mypage_password` フィールド追加。
+- **`services/event_detector.py` 拡張** (L226-253): メールAI解析結果に `mypage_url` が含まれる場合、`save_mypage_credential()` で自動保存 + `mypage_login` タスクを自動キュー投入。
+- **`db/mypages.py` 新規作成**: `mypage_credentials` テーブル CRUD（save/get/update_password/update_status/get_by_status/save_screenshot/delete）。
+
+### Phase 2: Playwright ボット（ログイン+パスワード変更） ✅
+- **`services/mypage_bot.py` 新規作成** (277行): Playwright headless Chromium でMyPageにログイン → フォーム自動検出（7パターン）→ パスワード変更プロンプト検出 → 統一パスワードに変更 → スクリーンショット保存 → DB更新。
+- **`routes/api_mypage.py` 新規作成** (135行): MyPage CRUD + 統一パスワード管理 + ボットトリガー + スクリーンショット取得 + ES自動生成の7エンドポイント。
+- **`services/task_worker.py` 拡張**: `mypage_login` ハンドラー登録。
+- **`templates/mypage.html` 新規作成** (359行): 管理画面（ステータスフィルタ、手動追加モーダル、統一パスワードモーダル、ES生成モーダル、ID/PWコピーボタン）。
+- **ステータスマシン**: received → logging_in → password_changed → profile_filled → es_filling → draft_saved → ready_for_review / manual_intervention_needed / submitted / failed。
+
+### Phase 3-4: 未実装（Deep Crawling + Semi-auto ES Filling）
+- Phase 3: ログイン後のMyPage内ページクローリング、ES入力フォーム検出
+- Phase 4: AI生成ES自動入力、下書き保存、ユーザー確認後提出
+
+## 2026-03-04: TODO 3 完了確認
+
+### 完了内容
+- **`services/detail_enrich_service.py`** (317行): 全5サイトのURL戦略（mynavi 2ページ, career_tasu 2ページ, onecareer 2-3ページ, engineer_shukatu 2-3ページ, gaishishukatsu 1ページ）で複数ページ取得 + AI解析 + ai_mergeでDB更新。
+- **`ai/job_detail_parser.py`** (139行): 14フィールド抽出（company_business, company_culture, selection_process, next_action, next_action_url, position, salary, location, benefits, work_style, requirements, job_description, industry, deadline_date）。
+- **`scrapers/base.py` `_run_pipeline`**: Phase 1（スクレイプ→保存）+ Phase 2（TaskWorker経由で非同期AI enrichment）の2段階パイプライン完成。
+- **TaskWorker**: `detail_enrich` ハンドラー登録済み。
+- **TODO 3 ステータス: ✅ 完了**

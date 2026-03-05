@@ -61,7 +61,91 @@
         <button class="btn btn-sm btn-outline"
             onclick="document.getElementById('es-detail').style.display='none'">閉じる</button>
     </div>
-    <div style="padding:1rem; display:grid; gap:1rem;">
+
+    <!-- Resume-specific detail view (hidden by default) -->
+    <div id="resume-detail" style="display:none; padding:1rem;">
+        <div style="display:flex; gap:1.5rem; flex-wrap:wrap;">
+            <!-- Photo Column -->
+            <div id="resume-photo-wrap" style="flex:0 0 auto;">
+                <img id="resume-photo" src="" alt="証明写真"
+                    style="width:150px; height:200px; object-fit:cover; border-radius:8px; border:2px solid var(--border-color); background:#1a1a2e;">
+            </div>
+            <!-- Personal Info Column -->
+            <div style="flex:1; min-width:250px;">
+                <div style="display:grid; gap:0.5rem;">
+                    <div class="resume-field">
+                        <span class="resume-label">氏名</span>
+                        <span id="resume-name" class="resume-value"></span>
+                    </div>
+                    <div class="resume-field">
+                        <span class="resume-label">フリガナ</span>
+                        <span id="resume-kana" class="resume-value" style="font-size:0.9rem;"></span>
+                    </div>
+                    <div class="resume-field">
+                        <span class="resume-label">生年月日</span>
+                        <span id="resume-birthday" class="resume-value"></span>
+                    </div>
+                    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                        <div class="resume-field" style="flex:1; min-width:140px;">
+                            <span class="resume-label">📱 携帯電話</span>
+                            <span id="resume-phone" class="resume-value"></span>
+                        </div>
+                        <div class="resume-field" style="flex:1; min-width:140px;">
+                            <span class="resume-label">📧 e-mail</span>
+                            <span id="resume-email" class="resume-value"></span>
+                        </div>
+                    </div>
+                    <div class="resume-field">
+                        <span class="resume-label">📍 現住所</span>
+                        <span id="resume-address" class="resume-value"></span>
+                    </div>
+                    <div class="resume-field">
+                        <span class="resume-label">📅 日付</span>
+                        <span id="resume-date" class="resume-value"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Education -->
+        <div style="margin-top:1.25rem;">
+            <label class="section-label">🎓 学歴</label>
+            <div id="resume-education" class="es-text-block" style="padding:0.5rem 1rem;"></div>
+        </div>
+
+        <!-- Qualifications -->
+        <div style="margin-top:1rem;">
+            <label class="section-label">📜 保有資格</label>
+            <div id="resume-qualifications" class="es-text-block"></div>
+        </div>
+
+        <!-- Hobbies -->
+        <div style="margin-top:1rem;">
+            <label class="section-label">🎯 趣味・特技</label>
+            <div id="resume-hobbies" class="es-text-block"></div>
+        </div>
+
+        <!-- Academic work -->
+        <div style="margin-top:1rem;">
+            <label class="section-label">📚 学業・ゼミ・研究</label>
+            <div id="resume-academic" class="es-text-block"></div>
+        </div>
+
+        <!-- Self PR -->
+        <div style="margin-top:1rem;">
+            <label class="section-label">💪 自己PR</label>
+            <div id="resume-self-pr" class="es-text-block"></div>
+        </div>
+
+        <!-- Gakuchika -->
+        <div style="margin-top:1rem;">
+            <label class="section-label">⭐ 学生時代に最も打ち込んだこと</label>
+            <div id="resume-gakuchika" class="es-text-block"></div>
+        </div>
+    </div>
+
+    <!-- Regular ES detail view -->
+    <div id="regular-es-detail" style="padding:1rem; display:grid; gap:1rem;">
         <div>
             <label style="font-weight:600; color:var(--accent-color);">自己PR</label>
             <div id="es-self-pr" class="es-text-block"></div>
@@ -79,6 +163,7 @@
             <div id="es-experience" class="es-text-block"></div>
         </div>
     </div>
+
     <!-- AI Customize -->
     <div style="padding:1rem; border-top:1px solid var(--border-color);">
         <h4>🤖 企業別にカスタマイズ</h4>
@@ -154,6 +239,57 @@
         color: #fff;
         font-size: 0.8rem;
     }
+
+    /* Resume-specific styles */
+    .resume-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .resume-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary, #888);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .resume-value {
+        font-size: 1rem;
+        color: var(--text-primary, #fff);
+        font-weight: 500;
+    }
+
+    .section-label {
+        font-weight: 600;
+        color: var(--accent-color, #8b5cf6);
+        font-size: 0.95rem;
+        display: block;
+        margin-bottom: 0.4rem;
+    }
+
+    .edu-row {
+        display: flex;
+        gap: 1rem;
+        padding: 0.3rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .edu-row:last-child {
+        border-bottom: none;
+    }
+
+    .edu-period {
+        flex: 0 0 200px;
+        color: var(--text-secondary, #888);
+        font-size: 0.9rem;
+    }
+
+    .edu-school {
+        flex: 1;
+        font-size: 0.95rem;
+    }
 </style>
 
 <script>
@@ -191,10 +327,60 @@
 
             document.getElementById('es-detail-title').textContent = data.title || 'ES詳細';
             const p = data.parsed || {};
-            document.getElementById('es-self-pr').textContent = p.self_pr || '（未抽出）';
-            document.getElementById('es-motivation').textContent = p.motivation || '（未抽出）';
-            document.getElementById('es-strengths').textContent = Array.isArray(p.strengths) ? p.strengths.join('、') : (p.strengths || '（未抽出）');
-            document.getElementById('es-experience').textContent = p.experience || '（未抽出）';
+
+            // Check if this is a resume
+            if (p.is_resume && p.resume_data) {
+                const rd = p.resume_data;
+                // Show resume view, hide regular
+                document.getElementById('resume-detail').style.display = 'block';
+                document.getElementById('regular-es-detail').style.display = 'none';
+
+                // Photo
+                const photoWrap = document.getElementById('resume-photo-wrap');
+                if (data.photo_path) {
+                    document.getElementById('resume-photo').src = `/api/es/${id}/photo`;
+                    photoWrap.style.display = 'block';
+                } else {
+                    photoWrap.style.display = 'none';
+                }
+
+                // Personal info
+                document.getElementById('resume-name').textContent = rd.name || '-';
+                document.getElementById('resume-kana').textContent = rd.name_kana || '-';
+                document.getElementById('resume-birthday').textContent = rd.birthday || '-';
+                document.getElementById('resume-phone').textContent = rd.phone || '-';
+                document.getElementById('resume-email').textContent = rd.email || '-';
+                document.getElementById('resume-address').textContent =
+                    (rd.postcode ? '〒' + rd.postcode + ' ' : '') + (rd.address || '-');
+                document.getElementById('resume-date').textContent = rd.date || '-';
+
+                // Education
+                const eduEl = document.getElementById('resume-education');
+                if (rd.education && rd.education.length) {
+                    eduEl.innerHTML = rd.education.map(e =>
+                        `<div class="edu-row"><span class="edu-period">${e.period || ''}</span><span class="edu-school">${e.school || ''}</span></div>`
+                    ).join('');
+                } else {
+                    eduEl.textContent = '（未抽出）';
+                }
+
+                // Text fields
+                document.getElementById('resume-qualifications').textContent = rd.qualifications || '（未抽出）';
+                document.getElementById('resume-hobbies').textContent = rd.hobbies || '（未抽出）';
+                document.getElementById('resume-academic').textContent = rd.academic_work || '（未抽出）';
+                document.getElementById('resume-self-pr').textContent = rd.self_pr || '（未抽出）';
+                document.getElementById('resume-gakuchika').textContent = rd.gakuchika || '（未抽出）';
+            } else {
+                // Regular ES view
+                document.getElementById('resume-detail').style.display = 'none';
+                document.getElementById('regular-es-detail').style.display = 'grid';
+
+                document.getElementById('es-self-pr').textContent = p.self_pr || '（未抽出）';
+                document.getElementById('es-motivation').textContent = p.motivation || '（未抽出）';
+                document.getElementById('es-strengths').textContent = Array.isArray(p.strengths) ? p.strengths.join('、') : (p.strengths || '（未抽出）');
+                document.getElementById('es-experience').textContent = p.experience || '（未抽出）';
+            }
+
             document.getElementById('es-detail').style.display = 'block';
             document.getElementById('custom-es-result').style.display = 'none';
             document.getElementById('es-detail').scrollIntoView({ behavior: 'smooth' });

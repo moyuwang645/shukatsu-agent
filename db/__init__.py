@@ -8,139 +8,56 @@ For backward compatibility the old `from database import X` still works
 via the shim `database.py` that re-exports everything.
 """
 import sqlite3
-import logging
 import os
-import threading
-import time
-from contextlib import contextmanager
 from config import Config
-
-logger = logging.getLogger(__name__)
 
 
 def get_db():
-    """Get a NEW database connection (for reads or one-off operations).
-
-    For write operations, prefer ``get_db_connection()`` which routes
-    through the serialized DBWriter to avoid lock contention.
-    """
+    """Get database connection."""
     os.makedirs(os.path.dirname(Config.DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(Config.DB_PATH, timeout=10)
+    conn = sqlite3.connect(Config.DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
-# ── DBWriter: serialized single-connection writer ──────────────────
-
-class DBWriter:
-    """Serialize all DB writes through a single persistent connection.
-
-    Why: SQLite allows only one writer at a time. When Flask, TaskWorker,
-    and APScheduler all write concurrently, ``database is locked`` errors
-    occur. This class eliminates that by routing all writes through one
-    connection protected by a threading.Lock.
-
-    Usage:
-        with DBWriter.connection() as conn:
-            conn.execute("INSERT INTO ...")
-            conn.commit()
-
-    Reads via ``get_db()`` are unaffected (WAL mode allows concurrent reads).
-    """
-    _lock = threading.Lock()
-    _conn: sqlite3.Connection | None = None
-
-    @classmethod
-    def _ensure_connection(cls) -> sqlite3.Connection:
-        """Create or return the persistent writer connection."""
-        if cls._conn is None:
-            os.makedirs(os.path.dirname(Config.DB_PATH), exist_ok=True)
-            # check_same_thread=False is safe because our threading.Lock
-            # ensures only one thread accesses this connection at a time.
-            cls._conn = sqlite3.connect(
-                Config.DB_PATH, timeout=30, check_same_thread=False
-            )
-            cls._conn.row_factory = sqlite3.Row
-            cls._conn.execute("PRAGMA journal_mode=WAL")
-            cls._conn.execute("PRAGMA foreign_keys=ON")
-            cls._conn.execute("PRAGMA busy_timeout=5000")
-            logger.info("[db] DBWriter persistent connection created")
-        return cls._conn
-
-    @classmethod
-    @contextmanager
-    def connection(cls):
-        """Acquire exclusive write access and yield the connection.
-
-        Thread-safe: only one caller at a time can hold the lock.
-        If the connection is broken, it auto-reconnects.
-        """
-        with cls._lock:
-            try:
-                conn = cls._ensure_connection()
-                yield conn
-            except sqlite3.OperationalError as e:
-                # Connection might be stale — reset and re-raise
-                logger.warning(f"[db] DBWriter connection error: {e}")
-                cls._conn = None
-                raise
-            except Exception:
-                # Rollback uncommitted changes on error
-                if cls._conn is not None:
-                    try:
-                        cls._conn.rollback()
-                    except Exception:
-                        pass
-                raise
-
-    @classmethod
-    def close(cls):
-        """Close the persistent connection (for shutdown)."""
-        with cls._lock:
-            if cls._conn is not None:
-                try:
-                    cls._conn.close()
-                except Exception:
-                    pass
-                cls._conn = None
-                logger.info("[db] DBWriter connection closed")
-
+from contextlib import contextmanager
 
 @contextmanager
-def get_db_connection(max_retries=3):
-    """Context manager for safe DB operations — routes through DBWriter.
-
-    All writes are serialized through a single persistent connection,
-    eliminating ``database is locked`` errors. Retry with exponential
-    backoff is kept as a safety net.
+def get_db_connection():
+    """Context manager for safe DB connections.
 
     Usage:
         with get_db_connection() as conn:
             conn.execute(...)
             conn.commit()
+        # conn.close() called automatically, even on exceptions
     """
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            with DBWriter.connection() as conn:
-                yield conn
-                return  # success
-        except sqlite3.OperationalError as e:
-            if "locked" in str(e) and attempt < max_retries - 1:
-                wait = 0.1 * (2 ** attempt)
-                logger.warning(
-                    f"[db] write locked, retry {attempt + 1}/{max_retries} "
-                    f"in {wait:.1f}s — {e}"
-                )
-                time.sleep(wait)
-                last_error = e
-                continue
-            raise
-    if last_error:
-        raise last_error
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextmanager
+def get_db_read():
+    """Context manager for read-only DB connections.
+
+    Functionally identical to get_db_connection(), but semantically marks
+    the operation as read-only for clarity.
+
+    Usage:
+        with get_db_read() as conn:
+            rows = conn.execute("SELECT ...").fetchall()
+    """
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():

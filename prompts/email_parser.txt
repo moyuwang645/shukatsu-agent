@@ -7,10 +7,10 @@ If a field cannot be determined from the email, use "なし" (NOT null).
 
 {
   "is_job_related": true or false,
-  "event_type": "interview" | "es_deadline" | "webtest" | "seminar" | "offer" | "rejection" | "other",
+  "event_type": "interview" | "es_deadline" | "webtest" | "seminar" | "offer" | "rejection" | "mypage" | "other",
   "company_name": "正式な企業名（株式会社○○）",
   "position": "職種名（例: 総合職、SE職、技術職）",
-  "job_url": "求人ページ・マイページ・エントリーページのURL",
+  "job_url": "求人ページ・エントリーページのURL",
   "deadline_date": "YYYY-MM-DD（締切日）",
   "location": "勤務地（例: 東京都港区）",
   "salary": "給与情報（例: 月給25万円、年収400万円）",
@@ -19,6 +19,9 @@ If a field cannot be determined from the email, use "なし" (NOT null).
   "scheduled_date": "YYYY-MM-DD（面接・イベント日）",
   "scheduled_time": "HH:MM（開始時刻）",
   "online_url": "Zoom/Teams/Google MeetのURL",
+  "mypage_url": "マイページのログインURL",
+  "mypage_username": "マイページのログインID/メールアドレス",
+  "mypage_password": "マイページの初期パスワード",
   "summary": "メールの要点を1行で日本語で"
 }
 
@@ -37,9 +40,17 @@ If a field cannot be determined from the email, use "なし" (NOT null).
 - 記載がない場合は "なし"
 
 【job_url — 求人URL】
-- マイページURL、エントリーページURL、求人詳細ページURL を抽出
-- 企業の採用ページへのリンクも対象
+- 求人詳細ページURL、エントリーページURL を抽出
+- ⚠️ マイページURL は job_url ではなく mypage_url に入れること
 - 記載がない場合は "なし"
+
+【mypage — マイページ情報】
+- 「マイページ」「MyPage」「会員ページ」「候補者ページ」のログインURLを抽出
+- 初期ID（メールアドレスや会員番号）と初期パスワードが記載されていれば抽出
+- 採用管理サイト（Talentio, HRMOS, i-web, haRuhi, マイナビ等）のURLも対象
+- マイページURLは mypage_url に入れ、job_url には入れないこと
+- 「以下のURLからログイン」「マイページはこちら」等の文脈で判断
+- event_type を "mypage" に設定（他のイベントが同時にある場合はそちらを優先）
 
 【location — 勤務地】
 - 都道府県 + 市区町村、またはビル名・住所
@@ -56,12 +67,14 @@ If a field cannot be determined from the email, use "なし" (NOT null).
 - 「Webテスト」「適性検査」「SPI」→ "webtest"
 - 「内定」「内々定」→ "offer"
 - 「お祈り」「選考結果」「残念ながら」「今後のご活躍」→ "rejection"
+- マイページ登録完了・ログイン案内 → "mypage"
 
 【date — 日付計算】
 - 今日は {today} です。「明日」「来週月曜」等の相対表現はこの日付基準で計算すること
 
 【online_url】
-- Zoom / Teams / Google Meet の会議URLのみ。マイページURLは job_url に入れること
+- Zoom / Teams / Google Meet の会議URLのみ。マイページURLは mypage_url に入れること
 
 【is_job_related】
 - 広告・ニュースレター・配送通知・クーポン等は false
+

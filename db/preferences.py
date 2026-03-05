@@ -1,11 +1,11 @@
 """User preferences (search keywords) and scrape logs."""
-from . import get_db_connection
+from . import get_db_connection, get_db_read
 
 
 # ========== User Preferences ==========
 
 def get_preferences(enabled_only=False):
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         query = "SELECT * FROM user_preferences"
         if enabled_only:
             query += " WHERE enabled = 1"
@@ -51,7 +51,7 @@ def log_scrape(source, status, jobs_found=0, jobs_updated=0, error_message=''):
 
 
 def get_last_scrape(source):
-    with get_db_connection() as conn:
+    with get_db_read() as conn:
         row = conn.execute(
             "SELECT * FROM scrape_logs WHERE source = ? ORDER BY created_at DESC LIMIT 1",
             (source,)

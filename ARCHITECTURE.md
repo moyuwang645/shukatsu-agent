@@ -1,5 +1,5 @@
 # 就活エージェント システムアーキテクチャ
-# 最終更新: 2026-02-27
+# 最終更新: 2026-03-01
 
 ---
 
@@ -10,13 +10,14 @@ shukatsu-agent/
 ├── app.py                  # Flask アプリ + ページルート（8画面）
 ├── config.py               # 全設定（.env + app_config.ini）
 ├── database.py             # 後方互換 shim（re-exports db/*）
-├── gmail_browser.py        # Cookie経由Gmail取得（Playwright）
-├── gmail_service.py        # OAuth2経由Gmail取得
+├── gmail_browser.py        # Cookie経由Gmail取得（Playwright、統一fetch_emails_by_search）
+├── gmail_service.py        # OAuth2経由Gmail取得（query+分ページ対応）
 ├── ai_parser.py            # 旧AI shim（re-exports ai/）
 │
 ├── ai/                     # 🧠 AI/LLM 層
 │   ├── __init__.py         #   call_llm(), is_ai_configured(), clean_json_response()
 │   ├── adapters.py         #   Gemini / OpenAI / DeepSeek アダプター
+│   ├── ai_merge.py         #   統一AIマージ（ai_merge() — 全データ結合の単一関数）
 │   ├── dispatcher.py       #   LLMDispatcher: キー管理 + 優先度ルーティング
 │   ├── prompt_loader.py    #   prompts/*.txt 読み込み + 自動生成
 │   ├── chat_agent.py       #   チャット → キーワード生成
@@ -26,12 +27,13 @@ shukatsu-agent/
 │   └── es_writer.py        #   企業別ES自動生成
 │
 ├── db/                     # 💾 データベース層
-│   ├── __init__.py         #   get_db(), get_db_connection(), DBWriter, init_db()
+│   ├── __init__.py         #   get_db(), get_db_connection(), get_db_read(), DBWriter, init_db()
+│   ├── models.py           #   TypedDict型定義（JobRecord, InterviewRecord, TaskRecord等）
 │   ├── jobs.py             #   求人CRUD + upsert_job_from_scraper()
 │   ├── interviews.py       #   面接CRUD
 │   ├── emails.py           #   メールキャッシュ
 │   ├── applications.py     #   応募管理
-│   ├── es.py               #   ES文書
+│   ├── es.py               #   ES文書（photo_path対応）
 │   ├── chat.py             #   チャット履歴
 │   ├── notifications.py    #   通知
 │   ├── preferences.py      #   ユーザー希望条件
@@ -39,6 +41,7 @@ shukatsu-agent/
 │   ├── mypages.py          #   マイページ認証情報
 │   ├── openwork.py         #   OpenWorkキャッシュ
 │   ├── llm_settings.py     #   APIキー(AES暗号化) + ワークフロー設定
+│   ├── gmail_settings.py   #   Gmail設定管理（last_fetched_at, backfill_days等）
 │   ├── task_queue.py       #   タスクキュー（priority, status, retry）
 │   └── activity_log.py     #   構造化イベントログ
 │
@@ -47,14 +50,18 @@ shukatsu-agent/
 │   ├── event_detector.py   #   メール→AI→面接/ES/rejection自動処理
 │   ├── email_filter.py     #   3層メールフィルタ（regex→LLM batch→deep）
 │   ├── email_backfill.py   #   メール企業のスクレイパー補完
-│   ├── gmail_dispatcher.py #   Gmail統一取得（browser/API自動選択）
+│   ├── gmail_dispatcher.py #   Gmail統一取得（モードレジストリ経由、browser/API自動選択）
+│   ├── gmail_modes.py      #   FetchModeレジストリ（backfill/incremental/keyword_search + 拡張可能）
 │   ├── ai_search_service.py#   チャット検索パイプライン
 │   ├── enrichment_service.py#  AIスコアリングバッチ
+│   ├── detail_enrich_service.py# 求人詳細ページ取得+AI解析（サイト別URL戦略）
 │   ├── application_service.py# 海投キュー処理
-│   ├── company_normalizer.py#  会社名正規化 + クロスソースマッチ
+│   ├── company_normalizer.py#  会社名正規化
+│   ├── company_matcher.py  #   統一企業マッチング（4戦略スコアベース）
 │   ├── sse_hub.py          #   SSEリアルタイム求人更新
 │   ├── task_worker.py      #   TaskWorker: バックグラウンドタスク実行
-│   ├── es_parser.py        #   PDF/DOCX→テキスト→AI構造化
+│   ├── es_parser.py        #   PDF/DOCX→テキスト→AI構造化（PyMuPDF）
+│   ├── resume_parser.py    #   OpenES履歴書PDF座標ベースパーサー
 │   ├── profile_extractor.py#   ES→プロフィール抽出
 │   └── strict_es_generator.py# 文字数厳密ES生成
 │
@@ -83,7 +90,7 @@ shukatsu-agent/
 │   ├── api_notifications.py#   通知
 │   ├── api_scraping.py     #   スクレイピング起動 + Cookie Login
 │   ├── api_settings.py     #   AI設定 + LLMキー管理 + DB移動
-│   ├── api_gmail.py        #   Gmail認証 + 取得
+│   ├── api_gmail.py        #   Gmail認証 + モード別取得 + 設定API
 │   ├── api_chat.py         #   チャット検索
 │   ├── api_es.py           #   ES文書管理
 │   ├── api_applications.py #   応募管理
@@ -94,12 +101,16 @@ shukatsu-agent/
 │   └── entry_bot.py        #   フォーム自動入力ボット
 │
 ├── prompts/                # 📝 AIプロンプト（外部化テキスト）
+│   ├── ai_merge.txt
 │   ├── chat_agent.txt
 │   ├── email_parser.txt
 │   ├── es_parser.txt
 │   ├── es_writer.txt
 │   ├── job_detail_parser.txt
 │   ├── job_enricher.txt
+│   ├── merge_backfill.txt
+│   ├── merge_detail.txt
+│   ├── merge_email.txt
 │   └── mypage_es_generator.txt
 │
 ├── templates/              # 🖥️ フロントエンド（9画面）
@@ -327,7 +338,7 @@ sequenceDiagram
 
 ### DBWriter（書き込みシリアライゼーション）
 - `db/__init__.py`: `DBWriter` クラスが全DB書き込みを単一接続でシリアライズ
-- `get_db_connection()` コンテキストマネージャ: 全44関数が使用
+- `get_db_connection()` コンテキストマネージャ: 全DB書込関数（~59箇所）が使用
 - Flask / TaskWorker / APScheduler の並列書き込みで `database is locked` を完全排除
 
 ### 統一Dispatch（スクレイパー一元管理）
@@ -335,10 +346,24 @@ sequenceDiagram
 - `dispatch(action, mode, keywords, scrapers, ...)` が唯一のエントリポイント
 - 4つの分散レジストリを統合済み → 新スクレイパー追加はレジストリに1行追加のみ
 
-### 会社名正規化（クロスソースマージ）
-- `services/company_normalizer.py`: `normalize()` + `find_matching_job()`
+### 会社名マッチング（クロスソースマージ）
+- `services/company_normalizer.py`: `normalize()` — 会社名正規化（株式会社除去、全角→半角等）
+- `services/company_matcher.py`: `find_best_match()` — 4戦略スコアベースマッチング
+  - exact(100) → normalized(95) → domain(90) → substring(75)
 - `upsert_job_from_scraper()`: 3段階マッチング → ①(source, source_id) → ②正規化社名 → ③新規作成
 - 異ソース間の同一企業を1レコードに統合
+
+### 統一AIマージ（ai_merge）
+- `ai/ai_merge.py`: `ai_merge(existing, new_data, source, mode, ...)` — 全データ結合の単一関数
+- 3つのモード: `AI`（LLM判断）, `DIRECT`（ルールベース）, `AUTO`（データ量に応じて自動選択）
+- フィールド制約: `locked`（不変）, `write_once`（初回のみ）, `updatable`（更新可）, `ai_only`（AIのみ）
+- モジュラープロンプト: `prompts/merge_{key}.txt` でソース別にLLMプロンプトを定義
+
+### 履歴書PDF座標パーサー
+- `services/resume_parser.py`: OpenES形式の固定レイアウトPDFをAI不要で全フィールド抽出
+- PyMuPDF (fitz) でテキストブロック座標取得 → Y座標でフィールドマッピング
+- 証明写真自動抽出（height > width の画像を検出）
+- `services/es_parser.py` が `is_resume_pdf()` で自動判定 → 履歴書なら座標パーサーにディスパッチ
 
 ### SSEリアルタイム更新
 - `services/sse_hub.py`: pub/sub パターン
@@ -362,7 +387,7 @@ sequenceDiagram
 | **interviews** | id, job_id→jobs, interview_type, scheduled_at, location, online_url, status | 面接 |
 | **email_cache** | gmail_id(UNIQUE), subject, sender, body_preview, is_job_related, is_interview_invite, processed | メールキャッシュ |
 | **applications** | id, job_id→jobs, es_id→es_documents, ai_generated_es, status, error_message, submitted_at | 応募 |
-| **es_documents** | id, title, raw_text, parsed_data, is_template | ES文書 |
+| **es_documents** | id, title, raw_text, parsed_data, is_template, **photo_path** | ES文書（履歴書写真対応） |
 | **task_queue** | id, task_type, priority, status, params(JSON), result(JSON), error, retry_count, max_retries | タスク管理 |
 | **activity_log** | id, category, message, level, details(JSON), created_at | 構造化ログ |
 
@@ -452,7 +477,9 @@ sequenceDiagram
 | Method | Path | 用途 |
 |--------|------|------|
 | GET/POST/DELETE | /api/es[/\<id\>] | ES文書CRUD |
-| POST | /api/es/upload | ESファイルアップロード |
+| POST | /api/es/upload | ESファイルアップロード（履歴書自動判定・写真抽出）|
+| GET | /api/es/\<id\>/photo | 履歴書証明写真取得 |
+| POST | /api/es/generate | 企業カスタムES AI生成 |
 | GET/POST/DELETE | /api/mypage[/\<job_id\>] | マイページCRUD |
 | POST | /api/mypage/save | マイページ保存 |
 | GET/POST | /api/profile | プロフィール |
@@ -543,8 +570,42 @@ sequenceDiagram
 
 ## 技術スタック
 
-- **Backend**: Flask, SQLite3 (WAL mode, DBWriter serialization), APScheduler
+- **Backend**: Flask, SQLite3 (WAL mode, DBWriter write serialization, concurrent reads), APScheduler
 - **AI**: Gemini API / OpenAI API / DeepSeek API (multi-provider via adapters)
+- **PDF**: PyMuPDF (fitz) — ES/履歴書テキスト抽出 + 座標ベースパース
 - **Scraping**: Playwright (async), BeautifulSoup, aiohttp
 - **Frontend**: HTML5, Vanilla JS, CSS Variables (ダークモード対応, SSE)
 - **Task Queue**: SQLite-based priority queue + background worker thread
+
+
+## 設計パターン: DB読み書き分離 (2026-03-02)
+
+### 問題
+全DBアクセス（読み書き両方）が `get_db_connection()` → `DBWriter.connection()` → 単一の `threading.Lock()` を経由していた。
+SQLite WAL モードは「複数読者 + 1書者」の並行アクセスを許可するが、アプリ側のロックにより読み操作も直列化され、Docker環境下で深刻な競合が発生。
+
+### 解決策: `get_db_read()` の導入
+
+```
+書き込み                              読み取り
+  │                                     │
+  ▼                                     ▼
+get_db_connection()                 get_db_read()
+  │                                     │
+  ▼                                     ▼
+DBWriter.connection()               get_db() → 独立接続
+  │                                     │
+  ▼                                     ▼
+threading.Lock() (排他)             WAL並行読み (ロック不要)
+  │                                     │
+  ▼                                     ▼
+単一永続接続                         各呼び出しで新規接続 → close
+```
+
+- **`get_db_connection()`**: 書き込み操作専用。DBWriter の `threading.Lock()` で全書き込みを直列化。
+- **`get_db_read()`**: 読み取り専用。独立接続を使用し、WAL モードの並行読みを活用。ロック不要。
+- **混合操作** (例: `claim_next()`): 読み→書きのアトミック操作は `get_db_connection()` を使用。
+
+### 対象モジュール
+全15 DBモジュールの純読み関数（計~53関数）を `get_db_read()` に移行。
+
