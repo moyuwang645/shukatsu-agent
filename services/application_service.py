@@ -11,6 +11,7 @@ Responsibilities:
 import json
 import logging
 import time
+from domain.statuses import ApplicationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -150,14 +151,14 @@ def process_application_queue(max_per_run: int = 3) -> dict:
             job = get_job(job_id)
             if not job:
                 logger.warning(f"[app_service] App {app_id}: job {job_id} not found")
-                update_application_status(app_id, 'failed', 'Job not found')
+                update_application_status(app_id, ApplicationStatus.FAILED, 'Job not found')
                 stats['failed'] += 1
                 continue
 
             job_url = job.get('job_url', '')
             if not job_url:
                 logger.warning(f"[app_service] App {app_id}: no job_url for job {job_id}")
-                update_application_status(app_id, 'failed', 'No entry URL')
+                update_application_status(app_id, ApplicationStatus.FAILED, 'No entry URL')
                 stats['failed'] += 1
                 continue
 
@@ -170,7 +171,7 @@ def process_application_queue(max_per_run: int = 3) -> dict:
                 f"[app_service] App {app_id}: "
                 f"{job.get('company_name')} | dry_run={is_dry}"
             )
-            update_application_status(app_id, 'processing')
+            update_application_status(app_id, ApplicationStatus.PROCESSING)
 
             result = auto_fill_form(job_url, es_data, dry_run=is_dry)
 
@@ -180,21 +181,21 @@ def process_application_queue(max_per_run: int = 3) -> dict:
             notes = f"{message} | screenshots: {', '.join(screenshots)}" if screenshots else message
 
             if status == 'submitted':
-                update_application_status(app_id, 'submitted', notes)
+                update_application_status(app_id, ApplicationStatus.SUBMITTED, notes)
                 stats['submitted'] += 1
             elif status == 'filled':
                 # dry_run completed
-                update_application_status(app_id, 'dry_run_done', notes)
+                update_application_status(app_id, ApplicationStatus.DRY_RUN_DONE, notes)
                 stats['dry_run_filled'] += 1
             else:
-                update_application_status(app_id, 'failed', notes)
+                update_application_status(app_id, ApplicationStatus.FAILED, notes)
                 stats['failed'] += 1
 
             stats['processed'] += 1
 
         except Exception as e:
             logger.error(f"[app_service] App {app_id} error: {e}")
-            update_application_status(app_id, 'failed', str(e))
+            update_application_status(app_id, ApplicationStatus.FAILED, str(e))
             stats['failed'] += 1
 
         time.sleep(3)  # Polite delay between applications

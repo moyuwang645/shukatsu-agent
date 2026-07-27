@@ -1,10 +1,13 @@
 """API routes for ES (Entry Sheet) management."""
 import os
 import json
+import uuid
 from flask import Blueprint, request, jsonify
 from config import Config
 
 es_bp = Blueprint('es', __name__)
+
+ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.docx', '.jpg', '.jpeg', '.png'}
 
 
 @es_bp.route('/api/es/upload', methods=['POST'])
@@ -17,16 +20,31 @@ def upload_es():
     if not file.filename:
         return jsonify({'error': 'Empty filename'}), 400
 
-    # Save file
+    # Validate the extension before ASCII sanitization. Werkzeug's
+    # secure_filename('履歴書.pdf') returns 'pdf', which loses the suffix.
+    extension = os.path.splitext(file.filename)[1].lower()
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        return jsonify({
+            'error': 'Unsupported file type. Use PDF, DOCX, JPG, or PNG.'
+        }), 400
+
+    # Use only a server-generated name plus the allow-listed extension.
     upload_dir = Config.UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
+    file_path = os.path.join(upload_dir, f'{uuid.uuid4().hex}{extension}')
     file.save(file_path)
 
     # Parse
     from services.es_parser import parse_es_file, save_es_to_db
-    parsed = parse_es_file(file_path)
-    title = request.form.get('title', file.filename)
+    try:
+        parsed = parse_es_file(file_path)
+    except Exception:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        raise
+    title = request.form.get('title', file.filename).strip() or file.filename
 
     # If this is a resume, include photo_path in the document
     photo_path = ''

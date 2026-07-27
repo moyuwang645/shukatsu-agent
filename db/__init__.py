@@ -10,6 +10,15 @@ via the shim `database.py` that re-exports everything.
 import sqlite3
 import os
 from config import Config
+from domain.statuses import ApplicationStatus, MyPageStatus
+
+
+APPLICATION_STATUS_SQL = ', '.join(
+    f"'{status.value}'" for status in ApplicationStatus
+)
+MYPAGE_STATUS_SQL = ', '.join(
+    f"'{status.value}'" for status in MyPageStatus
+)
 
 
 def get_db():
@@ -60,12 +69,113 @@ def get_db_read():
         conn.close()
 
 
+def _migrate_status_constraints(conn):
+    """Expand legacy CHECK constraints used by in-progress workflows.
+
+    SQLite cannot alter a CHECK constraint in place, so older databases need
+    their tables rebuilt while preserving row IDs and data.  This migration is
+    intentionally idempotent and runs only when the required states are absent.
+    """
+    rows = conn.execute(
+        "SELECT name, sql FROM sqlite_master "
+        "WHERE type = 'table' AND name IN ('applications', 'mypage_credentials')"
+    ).fetchall()
+    table_sql = {row['name']: row['sql'] or '' for row in rows}
+
+    migrate_applications = any(
+        f"'{status.value}'" not in table_sql.get('applications', '')
+        for status in ApplicationStatus
+    )
+    migrate_mypages = any(
+        f"'{status.value}'" not in table_sql.get('mypage_credentials', '')
+        for status in MyPageStatus
+    )
+
+    if not migrate_applications and not migrate_mypages:
+        return
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        if migrate_applications:
+            conn.execute("DROP TABLE IF EXISTS applications_new")
+            conn.execute(f'''
+                CREATE TABLE applications_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL,
+                    es_id INTEGER,
+                    ai_generated_es TEXT,
+                    status TEXT DEFAULT 'pending'
+                        CHECK(status IN ({APPLICATION_STATUS_SQL})),
+                    submitted_at TIMESTAMP,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                    FOREIGN KEY (es_id) REFERENCES es_documents(id) ON DELETE SET NULL
+                )
+            ''')
+            conn.execute(f'''
+                INSERT INTO applications_new
+                    (id, job_id, es_id, ai_generated_es, status,
+                     submitted_at, error_message, created_at)
+                SELECT id, job_id, es_id, ai_generated_es, status,
+                       submitted_at, error_message, created_at
+                FROM applications
+            ''')
+            conn.execute("DROP TABLE applications")
+            conn.execute("ALTER TABLE applications_new RENAME TO applications")
+
+        if migrate_mypages:
+            conn.execute("DROP TABLE IF EXISTS mypage_credentials_new")
+            conn.execute(f'''
+                CREATE TABLE mypage_credentials_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL UNIQUE,
+                    login_url TEXT,
+                    username TEXT,
+                    initial_password TEXT,
+                    current_password TEXT,
+                    source_email_id TEXT,
+                    status TEXT DEFAULT 'received'
+                        CHECK(status IN ({MYPAGE_STATUS_SQL})),
+                    error_message TEXT,
+                    last_screenshot TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('''
+                INSERT INTO mypage_credentials_new
+                    (id, job_id, login_url, username, initial_password,
+                     current_password, source_email_id, status, error_message,
+                     last_screenshot, created_at, updated_at)
+                SELECT id, job_id, login_url, username, initial_password,
+                       current_password, source_email_id, status, error_message,
+                       last_screenshot, created_at, updated_at
+                FROM mypage_credentials
+            ''')
+            conn.execute("DROP TABLE mypage_credentials")
+            conn.execute(
+                "ALTER TABLE mypage_credentials_new RENAME TO mypage_credentials"
+            )
+
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
 def init_db():
     """Initialize all database tables."""
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.executescript('''
+    cursor.executescript(f'''
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             company_name TEXT NOT NULL,
@@ -106,7 +216,7 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
-    cursor.executescript('''
+    cursor.executescript(f'''
         CREATE TABLE IF NOT EXISTS interviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_id INTEGER,
@@ -191,7 +301,7 @@ def init_db():
             es_id INTEGER,
             ai_generated_es TEXT,
             status TEXT DEFAULT 'pending'
-                CHECK(status IN ('pending', 'generating', 'ready', 'submitted', 'failed')),
+                CHECK(status IN ({APPLICATION_STATUS_SQL})),
             submitted_at TIMESTAMP,
             error_message TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -219,10 +329,7 @@ def init_db():
             current_password TEXT,
             source_email_id TEXT,
             status TEXT DEFAULT 'received'
-                CHECK(status IN ('received', 'logging_in', 'password_changed',
-                    'profile_filled', 'es_filling', 'draft_saved',
-                    'ready_for_review', 'manual_intervention_needed',
-                    'submitted', 'failed')),
+                CHECK(status IN ({MYPAGE_STATUS_SQL})),
             error_message TEXT,
             last_screenshot TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -248,7 +355,10 @@ def init_db():
     ''');
 
     conn.commit()
-    conn.close()
+    try:
+        _migrate_status_constraints(conn)
+    finally:
+        conn.close()
 
     # Phase 7: LLM settings tables (uses own connection to avoid lock)
     from db.llm_settings import init_llm_tables

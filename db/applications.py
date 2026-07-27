@@ -1,6 +1,15 @@
 """Application (auto-apply / 海投) tracking CRUD operations."""
 from datetime import datetime
 from . import get_db_connection
+from domain.statuses import APPLICATION_STATUS_VALUES, ApplicationStatus
+
+
+def _validate_status(status: str) -> str:
+    """Return a normalized status or fail before SQLite's CHECK constraint."""
+    value = str(status)
+    if value not in APPLICATION_STATUS_VALUES:
+        raise ValueError(f'Invalid application status: {value}')
+    return value
 
 
 def create_application(data: dict) -> int:
@@ -19,7 +28,7 @@ def create_application(data: dict) -> int:
         ''', (
             data.get('job_id'),
             data.get('es_document_id') or data.get('es_id'),
-            data.get('status', 'pending'),
+            _validate_status(data.get('status', ApplicationStatus.PENDING)),
             _pack_custom_es(data),
             data.get('notes', ''),
         ))
@@ -116,8 +125,9 @@ def get_all_applications(status: str = None) -> list:
 
 def update_application_status(app_id: int, status: str, message: str = None):
     """Update application status (and submitted_at for 'submitted')."""
+    status = _validate_status(status)
     with get_db_connection() as conn:
-        if status == 'submitted':
+        if status == ApplicationStatus.SUBMITTED:
             conn.execute(
                 "UPDATE applications SET status = ?, submitted_at = ?, error_message = ? WHERE id = ?",
                 (status, datetime.now().isoformat(), message, app_id)
@@ -151,7 +161,15 @@ def get_application_stats() -> dict:
     """Get counts by application status."""
     with get_db_connection() as conn:
         stats = {}
-        for status in ['pending', 'processing', 'ready', 'dry_run_done', 'submitted', 'failed']:
+        for status in (
+            ApplicationStatus.PENDING,
+            ApplicationStatus.GENERATING,
+            ApplicationStatus.PROCESSING,
+            ApplicationStatus.READY,
+            ApplicationStatus.DRY_RUN_DONE,
+            ApplicationStatus.SUBMITTED,
+            ApplicationStatus.FAILED,
+        ):
             row = conn.execute(
                 "SELECT COUNT(*) as cnt FROM applications WHERE status = ?", (status,)
             ).fetchone()

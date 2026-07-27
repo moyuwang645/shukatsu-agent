@@ -9,6 +9,7 @@ from db.mypages import (
     save_mypage_screenshot, update_mypage_status,
 )
 from db.user_profile import get_mypage_password, save_mypage_password
+from domain.statuses import MyPageStatus
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ def api_mypage_login(job_id):
         params={'job_id': job_id},
         priority=5,
     )
-    update_mypage_status(job_id, 'logging_in')
+    update_mypage_status(job_id, MyPageStatus.LOGGING_IN)
     return jsonify({'task_id': task_id, 'status': 'queued'})
 
 
@@ -112,7 +113,7 @@ def api_mypage_fill_profile(job_id):
         params={'job_id': job_id},
         priority=5,
     )
-    update_mypage_status(job_id, 'filling_profile')
+    update_mypage_status(job_id, MyPageStatus.FILLING_PROFILE)
     return jsonify({'task_id': task_id, 'status': 'queued'})
 
 
@@ -136,16 +137,57 @@ def api_mypage_screenshot(job_id):
 
 @mypage_bp.route('/api/mypage/generate-es', methods=['POST'])
 def api_mypage_generate_es():
-    """Generate company-specific ES answers using AI."""
+    """Generate a character-limited ES answer and return it immediately.
+
+    The MyPage UI expects the generated text in this HTTP response, so this is
+    deliberately synchronous instead of placing an unobservable queue task.
+    """
     data = request.get_json(force=True)
     job_id = data.get('job_id')
-    if not job_id:
-        return jsonify({'error': 'job_id required'}), 400
+    question = str(data.get('question', '')).strip()
+    try:
+        max_chars = int(data.get('max_chars', 400))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'max_chars must be an integer'}), 400
 
-    from db.task_queue import enqueue
-    task_id = enqueue(
-        task_type='generate_es',
-        params={'job_id': int(job_id)},
-        priority=5,
+    if not job_id or not question:
+        return jsonify({'error': 'job_id and question are required'}), 400
+    if not 50 <= max_chars <= 2000:
+        return jsonify({'error': 'max_chars must be between 50 and 2000'}), 400
+
+    from db.jobs import get_job
+    from db.es import get_all_es_documents
+    from db.openwork import get_openwork_data
+    from services.strict_es_generator import generate_strict_es
+
+    job = get_job(int(job_id))
+    if not job:
+        return jsonify({'error': 'job not found'}), 404
+
+    base_es = {}
+    docs = get_all_es_documents(templates_only=True) or get_all_es_documents()
+    if docs:
+        import json
+        try:
+            base_es = json.loads(docs[0].get('parsed_data') or '{}')
+        except (TypeError, ValueError):
+            base_es = {'self_pr': docs[0].get('raw_text', '')}
+
+    openwork_data = None
+    try:
+        openwork_data = get_openwork_data(job.get('company_name', ''))
+        if openwork_data:
+            openwork_data = dict(openwork_data)
+    except Exception:
+        logger.debug("OpenWork data unavailable for job_id=%s", job_id)
+
+    result = generate_strict_es(
+        question=question,
+        max_chars=max_chars,
+        company_name=job.get('company_name', ''),
+        base_es=base_es,
+        openwork_data=openwork_data,
     )
-    return jsonify({'task_id': task_id, 'status': 'queued'})
+    if not result.get('text'):
+        return jsonify({'error': 'ES generation failed', **result}), 503
+    return jsonify(result)

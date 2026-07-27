@@ -2,6 +2,7 @@
 import json
 from datetime import datetime
 from . import get_db_connection
+from domain.statuses import MYPAGE_STATUS_VALUES
 
 
 def save_mypage_credential(job_id: int, login_url: str, username: str,
@@ -59,6 +60,10 @@ def update_mypage_status(job_id: int, status: str, error_msg: str = None):
               es_filling, draft_saved, ready_for_review,
               manual_intervention_needed, submitted, failed
     """
+    status = str(status)
+    if status not in MYPAGE_STATUS_VALUES:
+        raise ValueError(f'Invalid MyPage status: {status}')
+
     with get_db_connection() as conn:
         conn.execute('''
             UPDATE mypage_credentials

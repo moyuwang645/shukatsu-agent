@@ -35,7 +35,9 @@ class Config:
     ]
 
     # Server
-    HOST = os.getenv('HOST', '0.0.0.0')
+    # Local-first by default. Set HOST=0.0.0.0 explicitly only when remote
+    # access is intended and an authentication/reverse-proxy layer is present.
+    HOST = os.getenv('HOST', '127.0.0.1')
     PORT = int(os.getenv('PORT', '5000'))
     DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 
