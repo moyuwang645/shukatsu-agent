@@ -1,14 +1,24 @@
 ---
-description: How to test and verify code changes in the Docker environment
+description: How to test and verify code changes locally or in Docker
 ---
 
-# Docker Testing Workflow
+# Local-First Testing Workflow
 
-> **CRITICAL**: All code testing and verification MUST be done inside Docker containers.
-> NEVER use local `python`, `py_compile`, or `node` commands on Windows.
-> The application runs ONLY in Docker.
+The application is designed to run directly in a Python virtual environment.
+Docker is optional and should only be used when the developer explicitly wants
+container parity. On machines with limited disk space, use the local workflow.
 
-## Docker Configuration
+## Local workflow (default)
+
+1. Create/install the environment with `setup.bat` (Windows) or `setup.sh`.
+2. Run syntax checks with `python -m compileall .`.
+3. Run regression tests with `python -m unittest discover -s tests -v`.
+4. Start with `start.bat`, `start.sh`, or `python app.py`.
+5. Open `http://localhost:5000`.
+
+The default host is `127.0.0.1`; remote access must be explicitly enabled.
+
+## Optional Docker Configuration
 
 | Item | Value |
 |:--|:--|
@@ -29,7 +39,7 @@ description: How to test and verify code changes in the Docker environment
 
 1. Rebuild and restart after code changes:
 ```powershell
-docker-compose -f C:\Users\23111\.gemini\antigravity\scratch\job-agent\docker-compose.yml up -d --build
+docker compose up -d --build
 ```
 
 2. Check container is running:

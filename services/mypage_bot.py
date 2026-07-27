@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from domain.statuses import MyPageStatus
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +380,7 @@ def run_mypage_login(job_id: int, **kwargs) -> dict:
     unified_password = get_mypage_password()
 
     if not login_url or not username:
-        update_mypage_status(job_id, 'failed', 'Missing login_url or username')
+        update_mypage_status(job_id, MyPageStatus.FAILED, 'Missing login_url or username')
         return {'status': 'failed', 'error': 'missing login_url or username'}
 
     # Run async login
@@ -389,7 +390,7 @@ def run_mypage_login(job_id: int, **kwargs) -> dict:
         ))
     except Exception as e:
         logger.error(f"[mypage_bot] Fatal error: {e}")
-        update_mypage_status(job_id, 'failed', str(e))
+        update_mypage_status(job_id, MyPageStatus.FAILED, str(e))
         return {'status': 'failed', 'error': str(e)}
 
     # Update DB based on result
@@ -398,14 +399,14 @@ def run_mypage_login(job_id: int, **kwargs) -> dict:
 
     if result['status'] == 'password_changed' and unified_password:
         update_mypage_password(job_id, unified_password)
-        update_mypage_status(job_id, 'password_changed')
+        update_mypage_status(job_id, MyPageStatus.PASSWORD_CHANGED)
     elif result['status'] == 'logged_in':
-        update_mypage_status(job_id, 'password_changed')  # logged in at least
+        update_mypage_status(job_id, MyPageStatus.PASSWORD_CHANGED)  # logged in at least
     elif result['status'] == 'manual_intervention_needed':
-        update_mypage_status(job_id, 'manual_intervention_needed',
+        update_mypage_status(job_id, MyPageStatus.MANUAL_INTERVENTION_NEEDED,
                              result.get('error'))
     else:
-        update_mypage_status(job_id, 'failed', result.get('error'))
+        update_mypage_status(job_id, MyPageStatus.FAILED, result.get('error'))
 
     return result
 
@@ -1157,19 +1158,19 @@ def run_mypage_fill_profile(job_id: int, **kwargs) -> dict:
     password = unified_pw or cred.get('current_password') or cred.get('initial_password')
 
     if not login_url or not username:
-        update_mypage_status(job_id, 'failed', 'Missing login_url or username')
+        update_mypage_status(job_id, MyPageStatus.FAILED, 'Missing login_url or username')
         return {'status': 'failed', 'error': 'missing login_url or username'}
 
     # Load user profile
     profile_row = get_user_profile()
     if not profile_row or not profile_row.get('parsed'):
-        update_mypage_status(job_id, 'failed', 'No user profile data')
+        update_mypage_status(job_id, MyPageStatus.FAILED, 'No user profile data')
         return {'status': 'failed', 'error': 'no user profile'}
 
     profile = profile_row['parsed']
     logger.info(f"[mypage_bot] [fill] Profile fields: {list(profile.keys())}")
 
-    update_mypage_status(job_id, 'filling_profile')
+    update_mypage_status(job_id, MyPageStatus.FILLING_PROFILE)
 
     # Run async fill
     try:
@@ -1178,7 +1179,7 @@ def run_mypage_fill_profile(job_id: int, **kwargs) -> dict:
         ))
     except Exception as e:
         logger.error(f"[mypage_bot] [fill] Fatal error: {e}")
-        update_mypage_status(job_id, 'failed', str(e))
+        update_mypage_status(job_id, MyPageStatus.FAILED, str(e))
         return {'status': 'failed', 'error': str(e)}
 
     # Update DB
@@ -1186,12 +1187,12 @@ def run_mypage_fill_profile(job_id: int, **kwargs) -> dict:
         save_mypage_screenshot(job_id, result['screenshot'])
 
     if result['status'] == 'profile_filled':
-        update_mypage_status(job_id, 'profile_filled')
+        update_mypage_status(job_id, MyPageStatus.PROFILE_FILLED)
     elif result['status'] == 'manual_intervention_needed':
-        update_mypage_status(job_id, 'manual_intervention_needed',
+        update_mypage_status(job_id, MyPageStatus.MANUAL_INTERVENTION_NEEDED,
                              result.get('error'))
     else:
-        update_mypage_status(job_id, 'failed', result.get('error'))
+        update_mypage_status(job_id, MyPageStatus.FAILED, result.get('error'))
 
     return result
 

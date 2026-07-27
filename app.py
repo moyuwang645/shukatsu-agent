@@ -1,8 +1,10 @@
 """Shukatsu Agent - Flask Application."""
 import os
 import logging
-from datetime import date, datetime
-from flask import Flask, render_template, request
+import atexit
+from datetime import date
+from flask import Blueprint, Flask, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException
 from config import Config
 from database import (
     init_db, get_all_jobs, get_job_stats,
@@ -12,42 +14,71 @@ from database import (
     get_unread_notifications, get_cached_emails, get_last_scrape,
     get_preferences
 )
-from scheduler import init_scheduler, shutdown_scheduler
 from routes import register_blueprints
 
-# Ensure data directory exists before logging setup
-os.makedirs(os.path.join(Config.BASE_DIR, 'data'), exist_ok=True)
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join(Config.BASE_DIR, 'data', 'app.log'), encoding='utf-8')
-    ]
-)
 logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-app.secret_key = Config.SECRET_KEY
-app.config['JSON_AS_ASCII'] = False  # Allow unicode in JSON responses
+pages_bp = Blueprint('pages', __name__)
+_background_started = False
 
 
-@app.after_request
+def configure_logging():
+    """Configure process logging once, when an application is created."""
+    root = logging.getLogger()
+    if getattr(root, '_shukatsu_configured', False):
+        return
+
+    os.makedirs(os.path.join(Config.BASE_DIR, 'data'), exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(
+                os.path.join(Config.BASE_DIR, 'data', 'app.log'),
+                encoding='utf-8',
+            ),
+        ],
+    )
+    root._shukatsu_configured = True
+
+
+def register_error_handlers(flask_app):
+    """Return predictable JSON errors for API clients."""
+    def api_error(message, status, code):
+        return jsonify({
+            'ok': False,
+            'error': message,
+            'error_code': code,
+        }), status
+
+    def handle_http_error(error):
+        if request.path.startswith('/api/'):
+            code = error.name.upper().replace(' ', '_')
+            return api_error(error.description, error.code or 500, code)
+        return error
+
+    def handle_unexpected_error(error):
+        logger.exception('Unhandled request error', exc_info=error)
+        if request.path.startswith('/api/'):
+            return api_error(
+                'Internal server error', 500, 'INTERNAL_SERVER_ERROR'
+            )
+        return 'Internal Server Error', 500
+
+    flask_app.register_error_handler(HTTPException, handle_http_error)
+    flask_app.register_error_handler(Exception, handle_unexpected_error)
+
+
+@pages_bp.after_app_request
 def set_utf8_charset(response):
     """Ensure all HTML/JSON responses declare UTF-8 charset in HTTP headers."""
     if 'text/html' in response.content_type and 'charset' not in response.content_type:
         response.content_type = response.content_type + '; charset=utf-8'
     return response
 
-# Register all API blueprints
-register_blueprints(app)
-
-
 # ========== Page Routes ==========
 
-@app.route('/')
+@pages_bp.route('/')
 def dashboard():
     today = date.today().isoformat()
     today_deadlines = get_jobs_by_deadline(today)
@@ -69,7 +100,7 @@ def dashboard():
                            page='dashboard')
 
 
-@app.route('/jobs')
+@pages_bp.route('/jobs')
 def jobs_page():
     status_filter = request.args.get('status', '')
     source_filter = request.args.get('source', '')
@@ -104,7 +135,7 @@ def jobs_page():
                            page='jobs')
 
 
-@app.route('/calendar')
+@pages_bp.route('/calendar')
 def calendar_page():
     jobs = get_all_jobs()
     interviews = get_all_interviews()
@@ -116,7 +147,7 @@ def calendar_page():
                            page='calendar')
 
 
-@app.route('/emails')
+@pages_bp.route('/emails')
 def emails_page():
     job_related = request.args.get('filter', '') == 'job'
     emails = get_cached_emails(job_related_only=job_related)
@@ -135,7 +166,7 @@ def emails_page():
                            page='emails')
 
 
-@app.route('/settings')
+@pages_bp.route('/settings')
 def settings_page():
     notifications = get_unread_notifications()
     last_scrape_info = get_last_scrape('mynavi')
@@ -160,7 +191,7 @@ def settings_page():
                            page='settings')
 
 
-@app.route('/chat')
+@pages_bp.route('/chat')
 def chat_page():
     notifications = get_unread_notifications()
     return render_template('chat.html',
@@ -168,7 +199,7 @@ def chat_page():
                            page='chat')
 
 
-@app.route('/es')
+@pages_bp.route('/es')
 def es_page():
     notifications = get_unread_notifications()
     from db.es import get_all_es_documents
@@ -179,7 +210,7 @@ def es_page():
                            page='es')
 
 
-@app.route('/mypage')
+@pages_bp.route('/mypage')
 def mypage_page():
     notifications = get_unread_notifications()
     from db.jobs import get_all_jobs
@@ -190,17 +221,54 @@ def mypage_page():
                            page='mypage')
 
 
-# ========== Startup ==========
+# ========== Application lifecycle ==========
 
-with app.app_context():
-    init_db()
+def create_app(*, initialize_database=True):
+    """Create a Flask application without starting background threads."""
+    configure_logging()
+    flask_app = Flask(__name__)
+    flask_app.secret_key = Config.SECRET_KEY
+    flask_app.config['JSON_AS_ASCII'] = False
+    flask_app.config['MAX_CONTENT_LENGTH'] = Config.MAX_UPLOAD_SIZE
 
-init_scheduler()
+    flask_app.register_blueprint(pages_bp)
+    register_blueprints(flask_app)
+    register_error_handlers(flask_app)
 
-import atexit
-atexit.register(shutdown_scheduler)
+    if initialize_database:
+        with flask_app.app_context():
+            init_db()
 
-if __name__ == '__main__':
+    return flask_app
+
+
+def start_background_services():
+    """Start scheduler and worker once in the current process."""
+    global _background_started
+    if _background_started:
+        return
+    from scheduler import init_scheduler, shutdown_scheduler
+    init_scheduler()
+    atexit.register(shutdown_scheduler)
+    _background_started = True
+
+
+def run_local():
+    """Run the local development server and its background services."""
+    flask_app = create_app()
+
+    # Werkzeug's debug reloader imports/runs the module in a parent process and
+    # a child process. Only the serving child may own scheduler/worker threads.
+    serving_process = (
+        not Config.DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+    )
+    if serving_process:
+        start_background_services()
+
     logger.info("🚀 Shukatsu Agent starting...")
     logger.info(f"Dashboard: http://localhost:{Config.PORT}")
-    app.run(debug=Config.DEBUG, host=Config.HOST, port=Config.PORT)
+    flask_app.run(debug=Config.DEBUG, host=Config.HOST, port=Config.PORT)
+
+
+if __name__ == '__main__':
+    run_local()

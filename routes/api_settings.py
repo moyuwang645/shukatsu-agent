@@ -404,8 +404,8 @@ def api_db_migrate():
     3. Update app_config.ini
     4. Requires app restart to take effect
     """
-    import shutil
     import sqlite3
+    from contextlib import closing
 
     data = request.get_json() or {}
     new_path = data.get('new_path', '').strip()
@@ -436,34 +436,45 @@ def api_db_migrate():
     if os.path.normpath(new_path) == os.path.normpath(current_path):
         return jsonify({'error': '移動先が現在のパスと同じです'}), 400
 
-    # Copy database
+    # Create a consistent snapshot. Copying only the main SQLite file can lose
+    # committed rows that are still present in the WAL file.
+    temp_path = new_path + '.migrating'
     try:
-        logger.info(f"[db-migrate] Copying {current_path} → {new_path}")
-        shutil.copy2(current_path, new_path)
+        logger.info(f"[db-migrate] Backing up {current_path} → {new_path}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        with closing(sqlite3.connect(current_path, timeout=30)) as source, \
+                closing(sqlite3.connect(temp_path, timeout=30)) as target:
+            source.backup(target)
     except Exception as e:
-        return jsonify({'error': f'コピー失敗: {e}'}), 500
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        return jsonify({'error': f'バックアップ失敗: {e}'}), 500
 
     # Verify integrity of the copy
     try:
-        conn = sqlite3.connect(new_path, timeout=5)
-        result = conn.execute("PRAGMA integrity_check").fetchone()
-        table_count = conn.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-        ).fetchone()[0]
-        conn.close()
+        with closing(sqlite3.connect(temp_path, timeout=5)) as conn:
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            table_count = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+            ).fetchone()[0]
 
         if result[0] != 'ok':
-            os.remove(new_path)
+            os.remove(temp_path)
             return jsonify({'error': f'整合性チェック失敗: {result[0]}'}), 500
 
         if table_count == 0:
-            os.remove(new_path)
+            os.remove(temp_path)
             return jsonify({'error': 'コピーされたDBにテーブルがありません'}), 500
+
+        os.replace(temp_path, new_path)
 
     except Exception as e:
         try:
-            os.remove(new_path)
-        except Exception:
+            os.remove(temp_path)
+        except OSError:
             pass
         return jsonify({'error': f'検証失敗: {e}'}), 500
 
